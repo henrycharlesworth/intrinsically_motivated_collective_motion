@@ -1,5 +1,5 @@
 //This was one of my first C++ projects so the code is a bit of a mess.
-// Written by Henry Charlesworth, University of Warwick, 2018.
+// Written by Henry Charlesworth, University of Warwick, 2017.
 
 #define _USE_MATH_DEFINES
 #include <iostream>
