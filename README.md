@@ -1,4 +1,6 @@
 # Code for "Intrinsically Motivated Collective Motion"
+Update: paper has now been published in PNAS: https://www.pnas.org/content/early/2019/07/15/1822069116. Note that the code here is only for the discrete sensor version of the model, using the ballistic heuristic for the future trajectories of the other agents.
+
 This is example code for the collective motion model I've been working on during my PhD. Running it as it is will run using the default parameters for 1000 timesteps.
 
 ## Example Result (click image below to watch video):
