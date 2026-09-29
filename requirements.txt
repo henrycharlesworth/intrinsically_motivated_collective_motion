@@ -1,0 +1,7 @@
+# Python tools (python/fsmtools, scripts/, tests/)
+numpy>=1.24
+scipy>=1.10
+pytest>=7
+# only for rendering videos (viewer/movie/movie.py), which also needs Google Chrome or Chromium
+websocket-client>=1.6
+imageio-ffmpeg>=0.4
