@@ -1,0 +1,923 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Future State Flock 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap">
+<style>
+  /* Sister of viewer.html: the same night-sky identity, one deliberate dark look. */
+  :root {
+    color-scheme: dark;
+    --ground: #070a12;
+    --ground-2: #0b1020;
+    --panel: #0e1424;
+    --panel-edge: #232c44;
+    --ink: #dfe8f7;
+    --muted: #8390ad;
+    --faint: #4b5673;
+    --accent: #4cc9f0;
+    --serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.45; overflow: hidden; }
+  .app { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 380px; }
+  .app.nopanel { grid-template-columns: minmax(0, 1fr); }
+  .app.nopanel .panel { display: none; }
+  .stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+  #gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  #gl.dragging { cursor: grabbing; }
+  .masthead { position: absolute; top: 20px; left: 24px; right: 24px; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
+  .masthead h1 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: 30px; letter-spacing: 0.005em; text-wrap: balance; }
+  .masthead h1 em { color: var(--muted); }
+  .dimswitch { display: inline-flex; gap: 2px; margin-left: 10px; vertical-align: 6px; font-family: var(--mono); font-size: 12px; pointer-events: auto; }
+  .dimswitch b, .dimswitch a { padding: 2px 8px; border: 1px solid var(--panel-edge); border-radius: 6px; font-weight: 500; }
+  .dimswitch b { color: var(--ground); background: var(--ink); border-color: var(--ink); }
+  .dimswitch a { color: var(--muted); text-decoration: none; }
+  .dimswitch a:hover { color: var(--ink); border-color: #3a4666; }
+  .runpick { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; pointer-events: auto; }
+  .runpick select { max-width: min(460px, 70vw); }
+  .runline { font-family: var(--mono); font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  .runline b { color: var(--ink); font-weight: 500; }
+  .hud {
+    position: absolute; top: 20px; right: 20px; display: grid; grid-template-columns: auto auto; gap: 3px 14px;
+    font-family: var(--mono); font-size: 12px; color: var(--muted); pointer-events: none; text-align: right;
+    background: rgba(7, 10, 18, 0.55); border: 1px solid rgba(35, 44, 68, 0.7); border-radius: 10px; padding: 10px 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .hud b { color: var(--ink); font-weight: 500; }
+  .hud .k { text-align: left; letter-spacing: 0.06em; text-transform: uppercase; font-size: 10.5px; color: var(--faint); align-self: center; }
+  .hint { position: absolute; left: 24px; bottom: 118px; font-size: 12px; color: var(--faint); pointer-events: none; }
+  .transport {
+    position: absolute; left: 16px; right: 16px; bottom: 16px; display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap;
+    padding: 10px 14px; border-radius: 12px; background: rgba(14, 20, 36, 0.82); border: 1px solid var(--panel-edge); backdrop-filter: blur(6px);
+  }
+  button, select {
+    font: inherit; color: var(--ink); background: #151d33; border: 1px solid var(--panel-edge); border-radius: 8px; padding: 6px 10px; cursor: pointer;
+  }
+  button:hover, select:hover { border-color: #3a4666; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button[aria-pressed="true"] { border-color: var(--accent); }
+  button[aria-pressed="false"] { color: var(--muted); }
+  #play { width: 74px; font-weight: 500; }
+  #prev, #next { width: 38px; padding-inline: 0; font-size: 12px; }
+  .grp { display: flex; gap: 6px; align-items: center; }
+  .scrub { flex: 1 1 100%; order: -1; display: flex; align-items: center; gap: 12px; min-width: 0; }
+  input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+  .clock, .mono { font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .clock b { color: var(--ink); font-weight: 500; }
+  .opts { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-left: auto; }
+  .opts label { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .opts input[type="range"] { width: 76px; flex: none; }
+  .loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-family: var(--mono); font-size: 13px; pointer-events: none; }
+  .loading[hidden] { display: none; }
+
+  .panel { background: var(--panel); border-left: 1px solid var(--panel-edge); display: flex; flex-direction: column; gap: 14px; padding: 20px 20px 18px; overflow-y: auto; min-height: 0; }
+  .panel h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: 24px; }
+  .panel h2 span { font-family: var(--mono); font-size: 13px; color: var(--muted); margin-left: 6px; }
+  .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  #hidepanel { font-size: 12px; padding: 4px 9px; color: var(--muted); }
+  .eyebrow { font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+  #eye { width: 100%; aspect-ratio: 2 / 1; display: block; border-radius: 10px; background: var(--ground-2); }
+  .eyecap { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--faint); margin-top: -8px; }
+  .scores { display: flex; flex-direction: column; gap: 3px; }
+  .scores .row { display: grid; grid-template-columns: 14px 78px 1fr 70px; gap: 8px; align-items: center; padding: 3px 6px; border-radius: 7px; border: 1px solid transparent; }
+  .scores .row.on { border-color: #3a4666; background: #121a2e; }
+  .scores .lbl { font-size: 12.5px; color: var(--muted); }
+  .scores .row.on .lbl { color: var(--ink); font-weight: 600; }
+  .bar { height: 9px; border-radius: 3px; background: #151d33; overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 3px; }
+  .val { font-family: var(--mono); font-size: 12px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .sw { width: 10px; height: 10px; border-radius: 50%; }
+  .explain { font-size: 13px; color: var(--muted); max-width: 62ch; margin: 0; }
+  .explain b { color: var(--ink); font-weight: 500; }
+  .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 12.5px; color: var(--muted); }
+  .legend div { display: flex; gap: 8px; align-items: center; }
+
+  @media (max-width: 860px) {
+    body { overflow: auto; }
+    .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(440px, 64vh) auto; height: auto; }
+    .panel { border-left: 0; border-top: 1px solid var(--panel-edge); padding-inline: 16px; }
+    .masthead { left: 16px; right: 16px; top: 14px; }
+    .masthead h1 { font-size: 24px; }
+    .hud { top: auto; bottom: 132px; right: 12px; font-size: 11px; padding: 8px 10px; }
+    .hint { display: none; }
+    .transport { left: 8px; right: 8px; bottom: 8px; padding: 8px 10px; }
+    .opts { display: none; }
+    .app.nopanel { grid-template-rows: minmax(440px, 82vh); }
+  }
+</style>
+
+<div class="app" id="app">
+  <main class="stage" aria-label="Flock view">
+    <canvas id="gl"></canvas>
+    <div class="loading" id="loading">loading trajectory…</div>
+    <header class="masthead">
+      <h1>Future State Maximisation <em>· flock in 3D</em> <span class="dimswitch"><a href="index.html">2D</a><b>3D</b></span></h1>
+      <div class="runline" id="runline"></div>
+      <div class="runpick">
+        <label for="run" class="eyebrow">Experiment</label>
+        <select id="run" aria-label="Choose an experiment"></select>
+      </div>
+    </header>
+    <div class="hud" id="hud" aria-live="off"></div>
+    <div class="hint">Click a bird to look through its eyes · drag to orbit · scroll to zoom · Space plays · ← → step · F follows</div>
+    <div class="transport" role="group" aria-label="Playback">
+      <div class="grp">
+        <button id="prev" type="button" aria-label="Previous step" title="Previous step (←)">◀</button>
+        <button id="play" type="button" aria-label="Play">Play</button>
+        <button id="next" type="button" aria-label="Next step" title="Next step (→)">▶</button>
+      </div>
+      <div class="scrub">
+        <input id="time" type="range" min="0" max="1" step="1" value="0" aria-label="Time step">
+        <span class="clock" id="clock">t <b>0</b></span>
+      </div>
+      <div class="grp" role="group" aria-label="Playback speed">
+        <button id="slower" type="button" aria-label="Slower" title="Slower ( [ )">«</button>
+        <span id="speedval" class="mono" title="Simulation steps per second">8 steps/s</span>
+        <button id="faster" type="button" aria-label="Faster" title="Faster ( ] )">»</button>
+      </div>
+      <button id="follow" type="button" aria-pressed="false" title="Camera rides behind the flock's mean heading (F)">Follow</button>
+      <button id="spin" type="button" aria-pressed="false" title="Slow automatic orbit">Orbit</button>
+      <button id="shape" type="button" aria-pressed="false" title="The flock's principal-axes ellipsoid (2σ)">Shape</button>
+      <button id="slice" type="button" aria-pressed="false" hidden title="Show only a thin slab through the predator, facing the camera (the rest as faint ghosts)">Slice</button>
+      <button id="birdview" type="button" aria-pressed="true" title="Show or hide the bird panel">Bird view</button>
+      <div class="opts">
+        <label for="trail">trail <input id="trail" type="range" min="0" max="30" step="1" value="2"></label>
+        <label for="size">size <input id="size" type="range" min="0.5" max="5" step="0.1" value="1"></label>
+        <label for="colour">colour
+          <select id="colour">
+            <option value="move" selected>move</option>
+            <option value="climb">elevation</option>
+            <option value="depth">depth</option>
+            <option value="aware" hidden>predator: sees / remembers</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </main>
+
+  <aside class="panel" aria-label="Selected bird">
+    <div class="panel-head">
+      <div class="eyebrow">Through one bird's eyes</div>
+      <button id="hidepanel" type="button">Hide</button>
+    </div>
+    <h2 id="who">Bird <span>t —</span></h2>
+    <canvas id="eye" width="768" height="384" aria-label="The selected bird's visual field, all directions"></canvas>
+    <div class="eyecap"><span>behind</span><span>left</span><span>ahead</span><span>right</span><span>behind</span></div>
+    <p class="explain">Its whole visual sphere, unrolled: longitude across (ahead in the middle), elevation up and down, in a frame that turns with the bird but stays level with gravity. Each neighbour is a disc; nearer ones are brighter. The thin line is the horizon, the ring marks where the bird is pointing.</p>
+    <div class="eyebrow" id="scorehead">Branch score W, by first move</div>
+    <div class="scores" id="scores"></div>
+    <p class="explain" id="explain">Every step each bird imagines all its move sequences τ steps ahead, assuming the others fly straight on, and discards those that collide. For each first move, <b>W</b> measures how different the views at the end of its surviving futures are from each other, summed over the whole sphere. It picks the move with the largest W.</p>
+    <div class="legend" id="legend"></div>
+  </aside>
+</div>
+
+<script src="js/three.min.js"></script>
+<script src="js/data.js"></script>
+<script src="data/runs.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const MOVES = [
+    { name: "yaw right", col: "#4cc9f0" }, { name: "yaw left", col: "#f72585" },
+    { name: "pitch down", col: "#7ee8a2" }, { name: "pitch up", col: "#ff7a45" },
+    { name: "slower", col: "#6c72ff" }, { name: "straight on", col: "#e9f5ff" }, { name: "faster", col: "#ffcc33" },
+  ];
+  const CLIMB = ["#7ee8a2", "#bfe9d9", "#e9f5ff", "#ffc4a8", "#ff7a45"];  // elevation: down .. level .. up
+  const DEPTH = ["#ffcc33", "#e9f5ff", "#4cc9f0", "#3350a8"];            // near .. far
+  const hex = (h) => [1, 3, 5].map((k) => parseInt(h.slice(k, k + 2), 16) / 255);
+  const rampAt = (stops, x) => {
+    const c = stops.map(hex), s = Math.max(0, Math.min(1, x)) * (c.length - 1), a = Math.min(c.length - 2, Math.floor(s)), f = s - a;
+    return c[a].map((v, k) => v + (c[a + 1][k] - v) * f);
+  };
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+
+  // ---------------- state ----------------
+  let runs = [], meta, P, T = 0, N = 0, traj, moves, scores = null;
+  let t = 0, playing = false, speed = 8, lastTs = null, selected = -1, userPicked = false;
+  let follow = false, spin = false, trailLen = 2, birdSize = 1, colourMode = "move";
+  let panelOn = true;
+  try { panelOn = localStorage.getItem("fsm3d-panel") !== "off"; } catch (e) { /* storage unavailable */ }
+
+  // ---------------- three.js scene ----------------
+  const canvas = $("gl");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  const scene = new THREE.Scene();
+  const FOG = new THREE.Color("#0a1122");
+  scene.fog = new THREE.FogExp2(FOG, 0.004);
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.5, 20000);
+  camera.up.set(0, 0, 1);
+
+  // Sky dome (unaffected by fog): deep navy overhead, a low luminous dusk band at the horizon (a warmer hint on
+  // one side, so the sky has an orientation), darker below. It follows the camera, so it is always "at infinity".
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(8000, 64, 32), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: { top: { value: new THREE.Color("#03060f") }, band: { value: new THREE.Color("#18264a") }, low: { value: new THREE.Color("#03050b") } },
+    vertexShader: "varying vec3 vd; void main(){ vd = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
+    fragmentShader: `uniform vec3 top, band, low; varying vec3 vd;
+      void main(){ float z = vd.z; vec3 c = z > 0.0 ? mix(band, top, pow(clamp(z,0.0,1.0), 0.45)) : mix(band, low, pow(clamp(-z,0.0,1.0), 0.3));
+        float glow = exp(-abs(z) * 11.0);
+        float warm = pow(max(0.0, dot(normalize(vd.xy + 1e-6), vec2(0.8, 0.6))), 6.0);
+        c += glow * (0.30 * vec3(0.20, 0.30, 0.52) + 0.22 * warm * vec3(0.55, 0.30, 0.22));
+        gl_FragColor = vec4(c, 1.0); }`,
+  }));
+  scene.add(sky);
+  // Stars: a fixed random field on the dome (brighter overhead, fading into the horizon haze).
+  {
+    const n = 1400, pos = new Float32Array(3 * n), col = new Float32Array(3 * n);
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+    for (let q = 0; q < n; q++) {
+      const z = rnd() * 1.1 - 0.1, a = rnd() * 2 * Math.PI, r = Math.sqrt(Math.max(0, 1 - z * z));
+      pos.set([7600 * r * Math.cos(a), 7600 * r * Math.sin(a), 7600 * z], 3 * q);
+      const b = Math.pow(rnd(), 3) * clamp(z * 4, 0, 1);
+      col.set([0.75 * b + 0.1 * b, 0.82 * b + 0.1 * b, 1.0 * b], 3 * q);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    var stars = new THREE.Points(g, new THREE.PointsMaterial({ size: 1.6, sizeAttenuation: false, vertexColors: true, fog: false, depthWrite: false }));
+    scene.add(stars);
+  }
+
+  scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x1a1f33, 0.95));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.75);
+  sun.position.set(0.4, -0.5, 1);
+  scene.add(sun);
+
+  // Ground: a soft grid far below the flock that follows it (a reference for "down", which the agents feel).
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, fog: false, extensions: { derivatives: true },
+    uniforms: { centre: { value: new THREE.Vector2() }, radius: { value: 200 }, cell: { value: 20 }, col: { value: new THREE.Color("#3a4a78") } },
+    vertexShader: "varying vec2 wp; void main(){ vec4 w = modelMatrix * vec4(position,1.0); wp = w.xy; gl_Position = projectionMatrix * viewMatrix * w; }",
+    fragmentShader: `uniform vec2 centre; uniform float radius, cell; uniform vec3 col; varying vec2 wp;
+      void main(){ vec2 g = abs(fract(wp / cell - 0.5) - 0.5) / fwidth(wp / cell);
+        float line = 1.0 - min(min(g.x, g.y), 1.0);
+        float r = length(wp - centre) / radius; float fade = smoothstep(1.0, 0.25, r);
+        gl_FragColor = vec4(col, (0.05 + 0.4 * line) * fade); }`,
+  }));
+  scene.add(ground);
+
+  // Birds: an instanced dart (nose along +x, wings along y, a keel down), flat-shaded.
+  function dartGeometry() {
+    const v = [[1.7, 0, 0], [-1.0, 0.95, 0.05], [-1.0, -0.95, 0.05], [-0.8, 0, 0.32], [-0.8, 0, -0.28]];
+    const f = [[0, 1, 3], [0, 3, 2], [0, 4, 1], [0, 2, 4], [1, 4, 3], [2, 3, 4]];
+    const pos = [];
+    for (const tri of f) for (const k of tri) pos.push(...v[k]);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.computeVertexNormals();
+    return g;
+  }
+  let birds = null, shadows = null, trails = null, halo = null, maxBirds = 0;
+  // the flock's principal-axes ellipsoid (2 sigma), optional
+  const shapeMesh = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1, 2)),
+    new THREE.LineBasicMaterial({ color: 0x8390ad, transparent: true, opacity: 0.28, depthWrite: false }));
+  shapeMesh.visible = false;
+  scene.add(shapeMesh);
+  let showShape = false;
+  // predator (runs with one: pred.f32 [T, 7] x, y, z, vx, vy, vz, caught so far; NaN before it appears): a red dart
+  // with its lethal sphere (R + radius) and a trail; agents are tinted by their closeness to it
+  let pred = null, seenArr = null, slice = false, NP = 1, predScale = 1, aim = null;
+  const SLAB = 5;  // half-thickness of the slice through the predator
+  const PRED_TRAIL = 80;
+  const PCOL = [[0xff3b30, 0x6a0d08, 0xff453a, [1, 0.3, 0.25]], [0xff9f0a, 0x6a3a05, 0xffb340, [1, 0.62, 0.1]]];  // per predator
+  const predObj = PCOL.map(([c, e, z, tc]) => {
+    const mesh = new THREE.Mesh(dartGeometry(), new THREE.MeshLambertMaterial({ color: c, emissive: e }));
+    const zone = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), new THREE.MeshBasicMaterial({ color: z, transparent: true, opacity: 0.14, depthWrite: false, fog: false }));
+    const trail = new THREE.Line(new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(new Float32Array(3 * (PRED_TRAIL + 1)), 3).setUsage(THREE.DynamicDrawUsage))
+      .setAttribute("color", new THREE.BufferAttribute(new Float32Array(3 * (PRED_TRAIL + 1)), 3).setUsage(THREE.DynamicDrawUsage)),
+      new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    for (const o of [mesh, zone, trail]) { o.visible = false; o.frustumCulled = false; scene.add(o); }
+    return { mesh, zone, trail, tc };
+  });
+  const PO = (k, r) => 7 * (k * NP + r);  // offset of predator r's frame k in pred
+  const predAt = (tf, r, out) => {  // interpolated position of predator r (null when absent)
+    if (!pred) return null;
+    const k0 = Math.floor(tf), k1 = Math.min(T - 1, k0 + 1), f = tf - k0, a = PO(k0, r), b = PO(k1, r);
+    if (Number.isNaN(pred[a])) return null;
+    for (let q = 0; q < 6; q++) out[q] = Number.isNaN(pred[b]) ? pred[a + q] : pred[a + q] + (pred[b + q] - pred[a + q]) * f;
+    return out;
+  };
+  const psts = [new Float32Array(6), new Float32Array(6)], camFwd = new THREE.Vector3();
+  const birdMat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x151b2e });  // flat normals from the non-indexed geometry
+  const shadowMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, fog: false,
+    vertexShader: `attribute float alpha; varying float va; varying vec2 uv0;
+      void main(){ va = alpha; uv0 = position.xy; gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position,1.0); }`,
+    fragmentShader: `varying float va; varying vec2 uv0; void main(){ float r = length(uv0); gl_FragColor = vec4(0.0, 0.01, 0.03, va * smoothstep(1.0, 0.0, r)); }`,
+  });
+  const trailMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+
+  function buildObjects(n) {
+    for (const o of [birds, shadows, trails, halo]) if (o) { scene.remove(o); o.geometry.dispose(); }
+    maxBirds = n;
+    birds = new THREE.InstancedMesh(dartGeometry(), birdMat, n);
+    birds.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    birds.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(3 * n), 3);
+    birds.instanceColor.setUsage(THREE.DynamicDrawUsage);
+    birds.frustumCulled = false;
+    scene.add(birds);
+    const disc = new THREE.CircleGeometry(1, 20);
+    disc.setAttribute("alpha", new THREE.InstancedBufferAttribute(new Float32Array(n), 1));
+    shadows = new THREE.InstancedMesh(disc, shadowMat, n);
+    shadows.frustumCulled = false;
+    scene.add(shadows);
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(n * 40 * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    tg.setAttribute("color", new THREE.BufferAttribute(new Float32Array(n * 40 * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    trails = new THREE.LineSegments(tg, trailMat);
+    trails.frustumCulled = false;
+    scene.add(trails);
+    halo = new THREE.Mesh(new THREE.RingGeometry(1.0, 1.18, 48), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthTest: false, fog: false }));
+    halo.renderOrder = 10;
+    scene.add(halo);
+  }
+
+  // ---------------- camera: orbit around a smoothed flock centre ----------------
+  // The distance frames the current flock (auto, smoothed) times the user's zoom.
+  const cam = { az: -2.2, el: 0.32, zoom: 1, dist: 120, auto: 120, autoTarget: 120, target: new THREE.Vector3(), smoothT: new THREE.Vector3(), fit: 120, ready: false };
+  function placeCamera(dtSec) {
+    const k = cam.ready ? 1 - Math.exp(-dtSec * 3) : 1;
+    cam.smoothT.lerp(cam.target, k);
+    cam.auto += (cam.autoTarget - cam.auto) * (cam.ready ? 1 - Math.exp(-dtSec * 1.5) : 1);
+    cam.dist = cam.auto * cam.zoom;
+    cam.ready = true;
+    if (spin) cam.az += dtSec * 0.08;
+    let az = cam.az;
+    if (follow && flockDir) az = Math.atan2(-flockDir.y, -flockDir.x);  // behind the mean heading
+    const ce = Math.cos(cam.el), se = Math.sin(cam.el);
+    camera.position.set(cam.smoothT.x + cam.dist * ce * Math.cos(az), cam.smoothT.y + cam.dist * ce * Math.sin(az), cam.smoothT.z + cam.dist * se);
+    camera.lookAt(cam.smoothT);
+    sky.position.copy(camera.position); stars.position.copy(camera.position);
+  }
+  let drag = null;
+  canvas.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY, az: cam.az, el: cam.el, moved: false }; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 3) { drag.moved = true; canvas.classList.add("dragging"); }
+    if (follow && drag.moved) setFollow(false);
+    cam.az = drag.az - dx * 0.006;
+    cam.el = clamp(drag.el + dy * 0.005, -1.35, 1.45);
+  });
+  canvas.addEventListener("pointerup", (e) => {
+    canvas.classList.remove("dragging");
+    if (drag && !drag.moved) pick(e);
+    drag = null;
+  });
+  canvas.addEventListener("wheel", (e) => { e.preventDefault(); cam.zoom = clamp(cam.zoom * Math.exp(e.deltaY * 0.0012), 0.03, 20); }, { passive: false });
+
+  // ---------------- data ----------------
+  // Positions from the initial state and the moves, integrated exactly as the simulator does (double precision):
+  // yaw by +-dtheta, pitch by +-dtheta (the elevation stays on the lattice of multiples of dtheta), speed v0 + ds dv,
+  // then x += v dt u(theta, phi). Frames out: x, y, z, theta, phi.
+  function replay3d(P, init, mv, T, N) {
+    const M = [[-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 0], [0, 0, 1]], dth = (P.dtheta_deg * Math.PI) / 180;
+    const out = new Float32Array(T * N * 5), s = new Float64Array(5 * N);
+    for (let j = 0; j < N; j++) for (let q = 0; q < 5; q++) s[5 * j + q] = init[6 * j + q];
+    for (let k = 0; k < T; k++) {
+      if (k > 0) {
+        const mo = (k - 1) * N;
+        for (let j = 0; j < N; j++) {
+          const m = M[mv[mo + j]], b = 5 * j;
+          s[b + 3] += m[0] * dth; s[b + 4] = Math.round(s[b + 4] / dth + m[1]) * dth;
+          const v = P.v0 + m[2] * P.dv, c = Math.cos(s[b + 4]);
+          s[b] += v * P.dt * c * Math.cos(s[b + 3]); s[b + 1] += v * P.dt * c * Math.sin(s[b + 3]); s[b + 2] += v * P.dt * Math.sin(s[b + 4]);
+        }
+      }
+      out.set(s, k * N * 5);
+    }
+    return out;
+  }
+  async function loadRun(id) {
+    $("loading").hidden = false;
+    $("loading").textContent = "loading trajectory…";
+    const r = await FSMData.load(id), m = r.meta, mv = r.moves;
+    const tr = r.traj || replay3d(m.params, r.init, mv, m.T, m.N);  // positions are shipped only for runs with noise
+    const sc = r.scores || null;
+    pred = r.pred || null;
+    NP = m.pred_n || 1;
+    seenArr = r.seen || null;
+    $("slice").hidden = !pred;
+    document.querySelector('#colour option[value="aware"]').hidden = !seenArr;
+    if (!seenArr && colourMode === "aware") { colourMode = "move"; $("colour").value = "move"; }
+    traj = null;  // nothing is drawn until the new run is complete
+    meta = m; P = m.params; T = m.T; N = m.N; moves = mv; scores = sc;
+    analyse(tr);
+    traj = tr;
+    if (N > maxBirds) buildObjects(N);
+    birds.count = N; shadows.count = N;
+    $("time").max = String(T - 1);
+    t = 0; selected = Math.floor(N / 2); userPicked = false;
+    cam.ready = false; cam.zoom = 1;
+    $("runline").innerHTML = `<span>N <b>${N}</b></span><span>τ <b>${P.tau}</b></span><span>${T - 1}${meta.every > 1 ? " × " + meta.every : ""} steps</span>` +
+      `<span>grid <b>${(P.grid || ["?", "?"]).join("×")}</b></span>`;
+    $("loading").hidden = true;
+    render(true);
+  }
+
+  // per-frame flock statistics: centre, mean heading, principal extents (sqrt of the covariance eigenvalues)
+  let cen, dirs, order, shape, zmin, axes;
+  // unit eigenvector of a symmetric 3x3 (a11, a12, a13, a22, a23, a33) for eigenvalue l: the largest cross product
+  // of two rows of A - l I
+  function eigvec(a, l) {
+    const r0 = [a[0] - l, a[1], a[2]], r1 = [a[1], a[3] - l, a[4]], r2 = [a[2], a[4], a[5] - l];
+    const cr = (u, v) => [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    let best = null, bn = -1;
+    for (const c of [cr(r0, r1), cr(r0, r2), cr(r1, r2)]) { const n = Math.hypot(...c); if (n > bn) { bn = n; best = c; } }
+    return bn > 1e-12 ? best.map((v) => v / bn) : [1, 0, 0];
+  }
+  function sym3eig(a) {  // eigenvalues of a symmetric 3x3 (analytic)
+    const [a11, a12, a13, a22, a23, a33] = a;
+    const p1 = a12 * a12 + a13 * a13 + a23 * a23, q = (a11 + a22 + a33) / 3;
+    if (p1 < 1e-12) return [a11, a22, a33].sort((x, y) => y - x);
+    const p2 = (a11 - q) ** 2 + (a22 - q) ** 2 + (a33 - q) ** 2 + 2 * p1, p = Math.sqrt(p2 / 6);
+    const b = [(a11 - q) / p, a12 / p, a13 / p, (a22 - q) / p, a23 / p, (a33 - q) / p];
+    const det = b[0] * (b[3] * b[5] - b[4] * b[4]) - b[1] * (b[1] * b[5] - b[4] * b[2]) + b[2] * (b[1] * b[4] - b[3] * b[2]);
+    const r = clamp(det / 2, -1, 1), phi = Math.acos(r) / 3;
+    const e1 = q + 2 * p * Math.cos(phi), e3 = q + 2 * p * Math.cos(phi + (2 * Math.PI) / 3);
+    return [e1, 3 * q - e1 - e3, e3];
+  }
+  function analyse(traj) {
+    cen = new Float32Array(3 * T); dirs = new Float32Array(3 * T); order = new Float32Array(T); shape = new Float32Array(3 * T); zmin = new Float32Array(T);
+    axes = new Float32Array(9 * T);
+    for (let k = 0; k < T; k++) {
+      const o = k * N * 5;
+      // centre: median-ish robust centre = mean of the birds within 2 sigma of the plain mean
+      let mx = 0, my = 0, mz = 0;
+      for (let j = 0; j < N; j++) { mx += traj[o + 5 * j]; my += traj[o + 5 * j + 1]; mz += traj[o + 5 * j + 2]; }
+      mx /= N; my /= N; mz /= N;
+      let s2 = 0;
+      for (let j = 0; j < N; j++) s2 += (traj[o + 5 * j] - mx) ** 2 + (traj[o + 5 * j + 1] - my) ** 2 + (traj[o + 5 * j + 2] - mz) ** 2;
+      const lim = 4 * (s2 / N) + 1e-9;
+      let cx = 0, cy = 0, cz = 0, c = 0, ux = 0, uy = 0, uz = 0, zm = 1e30;
+      for (let j = 0; j < N; j++) {
+        const x = traj[o + 5 * j], y = traj[o + 5 * j + 1], z = traj[o + 5 * j + 2], th = traj[o + 5 * j + 3], ph = traj[o + 5 * j + 4];
+        ux += Math.cos(ph) * Math.cos(th); uy += Math.cos(ph) * Math.sin(th); uz += Math.sin(ph);
+        if ((x - mx) ** 2 + (y - my) ** 2 + (z - mz) ** 2 <= lim) { cx += x; cy += y; cz += z; c++; zm = Math.min(zm, z); }
+      }
+      cx /= c; cy /= c; cz /= c;
+      cen.set([cx, cy, cz], 3 * k);
+      const un = Math.hypot(ux, uy, uz);
+      order[k] = un / N;
+      dirs.set([ux / un, uy / un, uz / un], 3 * k);
+      const a = [0, 0, 0, 0, 0, 0];
+      for (let j = 0; j < N; j++) {
+        const x = traj[o + 5 * j] - cx, y = traj[o + 5 * j + 1] - cy, z = traj[o + 5 * j + 2] - cz;
+        if (x * x + y * y + z * z > lim) continue;
+        a[0] += x * x; a[1] += x * y; a[2] += x * z; a[3] += y * y; a[4] += y * z; a[5] += z * z;
+      }
+      const am = a.map((v) => v / c), e = sym3eig(am);
+      shape.set(e.map((v) => Math.sqrt(Math.max(0, v))), 3 * k);
+      const v0 = eigvec(am, e[0]), v2 = eigvec(am, e[2]);
+      const v1 = [v2[1] * v0[2] - v2[2] * v0[1], v2[2] * v0[0] - v2[0] * v0[2], v2[0] * v0[1] - v2[1] * v0[0]];
+      axes.set([...v0, ...v1, ...v2], 9 * k);
+      zmin[k] = zm;
+    }
+    let ext = 0;
+    for (let k = 0; k < T; k++) ext = Math.max(ext, shape[3 * k]);
+    cam.fit = Math.max(20, 2.5 * ext);
+    drawSpark();
+    fitMini();
+  }
+
+  // HUD sparklines: order (accent) and thinness (warm) over the whole run; the marker follows the playhead
+  const spark = document.createElement("canvas");
+  spark.width = 360; spark.height = 84;
+  spark.style.cssText = "grid-column: 1 / -1; width: 180px; height: 42px; margin-top: 4px;";
+  let sparkBase = null;
+  function drawSpark() {
+    const c = spark.getContext("2d"), W = spark.width, H = spark.height;
+    c.clearRect(0, 0, W, H);
+    const series = [[order, "#4cc9f0"], [Float32Array.from({ length: T }, (_, k) => shape[3 * k + 2] / Math.max(1e-9, shape[3 * k])), "#ff7a45"]];
+    for (const [v, col] of series) {
+      c.strokeStyle = col; c.lineWidth = 2; c.globalAlpha = 0.9; c.beginPath();
+      const step = Math.max(1, Math.floor(T / W));
+      for (let x = 0; x < W; x++) {
+        const k = Math.min(T - 1, Math.floor((x / (W - 1)) * (T - 1)));
+        let m = 0, n = 0;
+        for (let q = k; q < Math.min(T, k + step); q++) { m += v[q]; n++; }
+        const y = H - 3 - (m / n) * (H - 6);
+        x ? c.lineTo(x, y) : c.moveTo(x, y);
+      }
+      c.stroke();
+    }
+    c.globalAlpha = 1;
+    sparkBase = c.getImageData(0, 0, W, H);
+  }
+  // Minimap (from above, north up, the whole run): the flock centre's path, bright up to now, the birds now, and a
+  // wedge for where the camera looks; below it the centre's altitude over the run (the ground follows the flock, so
+  // climbs are otherwise hard to see).
+  const mini = document.createElement("canvas"), alt = document.createElement("canvas");
+  mini.width = 360; mini.height = 360; alt.width = 360; alt.height = 70;
+  mini.title = "The whole run from above, north up: the flock's path, the birds now, and where the camera looks";
+  alt.title = "Altitude of the flock centre over the run";
+  mini.style.cssText = "grid-column: 1 / -1; width: 180px; height: 180px; margin-top: 8px; border-radius: 8px; background: rgba(9,13,26,0.6);";
+  alt.style.cssText = "grid-column: 1 / -1; width: 180px; height: 35px; margin-top: 2px;";
+  let miniFit = null;
+  function fitMini() {
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity, e = 0;
+    for (let k = 0; k < T; k++) {
+      x0 = Math.min(x0, cen[3 * k]); x1 = Math.max(x1, cen[3 * k]); y0 = Math.min(y0, cen[3 * k + 1]); y1 = Math.max(y1, cen[3 * k + 1]);
+      z0 = Math.min(z0, cen[3 * k + 2]); z1 = Math.max(z1, cen[3 * k + 2]); e = Math.max(e, shape[3 * k]);
+    }
+    const m = 3 * e + 10, span = Math.max(x1 - x0, y1 - y0) + 2 * m;
+    miniFit = { cx: 0.5 * (x0 + x1), cy: 0.5 * (y0 + y1), k: (0.9 * mini.width) / Math.max(1e-6, span), z0, z1: Math.max(z1, z0 + 1e-6) };
+  }
+  function drawMini(k) {
+    if (!miniFit) return;
+    const c = mini.getContext("2d"), S = mini.width, f = miniFit;
+    const MX = (x) => S / 2 + (x - f.cx) * f.k, MY = (y) => S / 2 - (y - f.cy) * f.k;
+    c.clearRect(0, 0, S, S);
+    const path = (q0, q1) => { c.beginPath(); c.moveTo(MX(cen[3 * q0]), MY(cen[3 * q0 + 1])); for (let q = q0 + 1; q <= q1; q++) c.lineTo(MX(cen[3 * q]), MY(cen[3 * q + 1])); c.stroke(); };
+    c.lineWidth = 2; c.lineJoin = "round";
+    c.strokeStyle = "rgba(131,144,173,0.3)"; path(0, T - 1);
+    c.strokeStyle = "rgba(76,201,240,0.85)"; path(0, k);
+    const stp = Math.max(1, Math.ceil(N / 1500)), o = k * N * 5;
+    c.fillStyle = "rgba(223,232,247,0.85)";
+    for (let j = 0; j < N; j += stp) c.fillRect(MX(traj[o + 5 * j]) - 1, MY(traj[o + 5 * j + 1]) - 1, 2, 2);
+    for (let r = 0; pred && r < NP; r++) {
+      if (Number.isNaN(pred[PO(k, r)])) continue;
+      const col = r ? "255,159,10" : "255,69,58";
+      c.strokeStyle = `rgba(${col},0.8)`; c.lineWidth = 2; c.beginPath();
+      let q = k; c.moveTo(MX(pred[PO(q, r)]), MY(pred[PO(q, r) + 1]));
+      for (q = k - 1; q >= Math.max(0, k - PRED_TRAIL) && !Number.isNaN(pred[PO(q, r)]); q--) c.lineTo(MX(pred[PO(q, r)]), MY(pred[PO(q, r) + 1]));
+      c.stroke();
+      c.fillStyle = `rgb(${col})`; c.beginPath(); c.arc(MX(pred[PO(k, r)]), MY(pred[PO(k, r) + 1]), 5, 0, 2 * Math.PI); c.fill();
+    }
+    // camera wedge: from the flock centre towards where the camera sits, opening with the horizontal field of view
+    const vx = cam.smoothT.x - camera.position.x, vy = cam.smoothT.y - camera.position.y, a = Math.atan2(vy, vx);
+    const half = Math.atan(Math.tan((camera.fov * Math.PI) / 360) * camera.aspect), X0 = MX(cam.smoothT.x), Y0 = MY(cam.smoothT.y), L = 40;
+    c.fillStyle = "rgba(255,204,51,0.22)"; c.strokeStyle = "rgba(255,204,51,0.9)"; c.lineWidth = 2;
+    const back = [X0 - Math.cos(a) * L * 1.2, Y0 + Math.sin(a) * L * 1.2];  // the camera, behind the centre
+    c.beginPath(); c.moveTo(back[0], back[1]);
+    c.lineTo(back[0] + Math.cos(a - half) * 2 * L, back[1] - Math.sin(a - half) * 2 * L);
+    c.lineTo(back[0] + Math.cos(a + half) * 2 * L, back[1] - Math.sin(a + half) * 2 * L);
+    c.closePath(); c.fill(); c.stroke();
+    c.fillStyle = "rgba(223,232,247,0.7)"; c.font = "bold 20px system-ui, sans-serif"; c.textAlign = "center"; c.fillText("N", S / 2, 24);
+    c.beginPath(); c.moveTo(S / 2, 30); c.lineTo(S / 2 - 6, 42); c.lineTo(S / 2 + 6, 42); c.closePath(); c.fill();
+    // altitude
+    const a2 = alt.getContext("2d"), AW = alt.width, AH = alt.height, AZ = (z) => AH - 6 - ((z - f.z0) / (f.z1 - f.z0)) * (AH - 12);
+    a2.clearRect(0, 0, AW, AH);
+    a2.strokeStyle = "rgba(126,232,162,0.9)"; a2.lineWidth = 2; a2.beginPath();
+    for (let x = 0; x < AW; x++) { const q = Math.min(T - 1, Math.floor((x / (AW - 1)) * (T - 1))); x ? a2.lineTo(x, AZ(cen[3 * q + 2])) : a2.moveTo(x, AZ(cen[3 * q + 2])); }
+    a2.stroke();
+    const xm = (k / Math.max(1, T - 1)) * (AW - 1);
+    a2.fillStyle = "rgba(223,232,247,0.85)"; a2.fillRect(xm - 1, 0, 2, AH);
+    a2.fillStyle = "rgba(131,144,173,0.9)"; a2.font = "18px ui-monospace, monospace"; a2.textAlign = "left";
+    a2.fillText(`altitude ${(cen[3 * k + 2] - cen[2] >= 0 ? "+" : "") + (cen[3 * k + 2] - cen[2]).toFixed(0)}`, 4, 18);
+  }
+  function markSpark(k) {
+    if (!sparkBase) return;
+    const c = spark.getContext("2d");
+    c.putImageData(sparkBase, 0, 0);
+    const x = (k / Math.max(1, T - 1)) * (spark.width - 1);
+    c.fillStyle = "rgba(223,232,247,0.85)"; c.fillRect(x - 1, 0, 2, spark.height);
+  }
+
+  // ---------------- drawing ----------------
+  const M4 = new THREE.Matrix4(), V = new THREE.Vector3(), COL = new THREE.Color();
+  let flockDir = null;
+  const tmpBasis = { f: new THREE.Vector3(), l: new THREE.Vector3(), u: new THREE.Vector3() };
+  function stateAt(j, tf, out) {  // interpolated x, y, z, theta, phi at fractional time tf
+    const k0 = Math.floor(tf), k1 = Math.min(T - 1, k0 + 1), f = tf - k0;
+    const a = k0 * N * 5 + 5 * j, b = k1 * N * 5 + 5 * j;
+    for (let q = 0; q < 3; q++) out[q] = traj[a + q] + (traj[b + q] - traj[a + q]) * f;
+    let dth = traj[b + 3] - traj[a + 3];
+    out[3] = traj[a + 3] + dth * f;
+    out[4] = traj[a + 4] + (traj[b + 4] - traj[a + 4]) * f;
+    return out;
+  }
+  const st = new Float32Array(5);
+  function colourOf(j, k, depthT) {
+    if (colourMode === "move") { const m = k > 0 ? moves[(k - 1) * N + j] : 5; return hex(MOVES[m] ? MOVES[m].col : "#ffffff"); }
+    if (colourMode === "climb") return rampAt(CLIMB, 0.5 + traj[k * N * 5 + 5 * j + 4] / (Math.PI / 2.4));
+    if (colourMode === "aware") {  // vision: sees the predator (red), remembers it (amber), unaware (slate)
+      let v = seenArr && k < T - 1 ? seenArr[k * N + j] : 0, f = 0;
+      for (let r = 0; r < NP; r++, v = Math.floor(v / 3)) { const d = v % 3; if (d === 1) f = 1; else if (d === 2 && !f) f = 2; }
+      return f === 1 ? [1.0, 0.27, 0.23] : f === 2 ? [1.0, 0.72, 0.25] : [0.45, 0.52, 0.66];
+    }
+    return rampAt(DEPTH, depthT);
+  }
+  function render(force) {
+    if (!traj) return;
+    const k = Math.round(t), kf = Math.floor(t), fr = t - kf;
+    const c0 = 3 * kf, c1 = 3 * Math.min(T - 1, kf + 1);
+    cam.target.set(cen[c0] + (cen[c1] - cen[c0]) * fr, cen[c0 + 1] + (cen[c1 + 1] - cen[c0 + 1]) * fr, cen[c0 + 2] + (cen[c1 + 2] - cen[c0 + 2]) * fr);
+    flockDir = new THREE.Vector3(dirs[c0], dirs[c0 + 1], dirs[c0 + 2]);
+    cam.autoTarget = Math.max(40, 9 * shape[3 * kf]);
+    if (aim) { cam.target.set(aim[0], aim[1], aim[2]); cam.autoTarget = aim[3]; }  // scripted camera target (FSM3D.aim)
+    const gz = cam.target.z - Math.max(25, 2.2 * shape[3 * kf]);  // ground below the flock
+    const s = Math.max(birdSize * P.R, cam.dist * 0.0035);  // true size, but never below ~a few pixels
+    const camPos = camera.position;
+    const dmin = Math.max(1, cam.dist - cam.fit), dmax = cam.dist + cam.fit;
+    const shA = shadows.geometry.getAttribute("alpha");
+    const pps = [];
+    for (let r = 0; r < NP && pred; r++) { const q = predAt(t, r, psts[r]); if (q) pps.push(q); }
+    const pp = pps.length ? pps[0] : null, pr = pp ? P.R + P.predator.radius : 0;
+    camera.getWorldDirection(camFwd);
+    for (let j = 0; j < N; j++) {
+      stateAt(j, t, st);
+      const th = st[3], ph = st[4];
+      const f = tmpBasis.f.set(Math.cos(ph) * Math.cos(th), Math.cos(ph) * Math.sin(th), Math.sin(ph));
+      const l = tmpBasis.l.set(-Math.sin(th), Math.cos(th), 0);
+      const u = tmpBasis.u.crossVectors(f, l);
+      M4.makeBasis(f.multiplyScalar(s), l.multiplyScalar(s), u.multiplyScalar(s)).setPosition(st[0], st[1], st[2]);
+      birds.setMatrixAt(j, M4);
+      V.set(st[0], st[1], st[2]);
+      const dd = (V.distanceTo(camPos) - dmin) / (dmax - dmin);
+      let c = colourOf(j, k, dd);
+      if (pp && colourMode !== "aware") {  // closeness to the predator: towards red within ~8 lethal radii
+        let dmin = Infinity;
+        for (const q of pps) dmin = Math.min(dmin, Math.hypot(st[0] - q[0], st[1] - q[1], st[2] - q[2]));
+        const w = Math.exp(-Math.max(0, dmin - pr) / (4 * pr));
+        if (w > 0.02) c = [c[0] + (1 - c[0]) * w, c[1] * (1 - 0.8 * w), c[2] * (1 - 0.8 * w)];
+      }
+      let dim = j === selected && userPicked ? 1.25 : 1;
+      if (slice && pp && Math.abs((st[0] - pp[0]) * camFwd.x + (st[1] - pp[1]) * camFwd.y + (st[2] - pp[2]) * camFwd.z) > SLAB) {
+        dim = 0.18;  // outside the slab: a small dark ghost
+        M4.makeBasis(tmpBasis.f.set(Math.cos(ph) * Math.cos(th), Math.cos(ph) * Math.sin(th), Math.sin(ph)).multiplyScalar(0.35 * s),
+          tmpBasis.l.set(-Math.sin(th), Math.cos(th), 0).multiplyScalar(0.35 * s), tmpBasis.u.crossVectors(tmpBasis.f, tmpBasis.l).normalize().multiplyScalar(0.35 * s)).setPosition(st[0], st[1], st[2]);
+        birds.setMatrixAt(j, M4);
+      }
+      birds.instanceColor.setXYZ(j, c[0] * dim, c[1] * dim, c[2] * dim);
+      const h = st[2] - gz, r = s * (1.1 + h * 0.02);
+      M4.makeScale(r, r, 1).setPosition(st[0], st[1], gz + 0.02);
+      shadows.setMatrixAt(j, M4);
+      shA.setX(j, clamp(0.55 / (1 + h * 0.015), 0.06, 0.55));
+    }
+    birds.instanceMatrix.needsUpdate = true; birds.instanceColor.needsUpdate = true;
+    shadows.instanceMatrix.needsUpdate = true; shA.needsUpdate = true;
+    // trails: the last trailLen steps, fading to black (additive), coloured like the bird
+    const tp = trails.geometry.getAttribute("position"), tc = trails.geometry.getAttribute("color");
+    let nseg = 0;
+    const L = Math.min(trailLen, kf);
+    if (L > 0) {
+      for (let j = 0; j < N; j++) {
+        const c = colourOf(j, k, 0.3);
+        stateAt(j, t, st);
+        let px = st[0], py = st[1], pz = st[2];
+        for (let q = 0; q < L; q++) {
+          const kk = kf - q, o = kk * N * 5 + 5 * j;
+          const x = traj[o], y = traj[o + 1], z = traj[o + 2];
+          const a0 = 0.4 * (1 - q / L), a1 = 0.4 * (1 - (q + 1) / L);
+          tp.setXYZ(2 * nseg, px, py, pz); tp.setXYZ(2 * nseg + 1, x, y, z);
+          tc.setXYZ(2 * nseg, c[0] * a0, c[1] * a0, c[2] * a0); tc.setXYZ(2 * nseg + 1, c[0] * a1, c[1] * a1, c[2] * a1);
+          px = x; py = y; pz = z; nseg++;
+        }
+      }
+    }
+    trails.geometry.setDrawRange(0, 2 * nseg);
+    tp.needsUpdate = true; tc.needsUpdate = true;
+    // predators
+    for (let r = 0; r < predObj.length; r++) {
+    const { mesh: predMesh, zone: predZone, trail: predTrail, tc } = predObj[r];
+    const pp = r < NP ? predAt(t, r, psts[r]) : null;
+    for (const o of [predMesh, predZone, predTrail]) o.visible = !!pp;
+    if (pp) {
+      const sp = Math.hypot(pp[3], pp[4], pp[5]) || 1, fx = pp[3] / sp, fy = pp[4] / sp, fz = pp[5] / sp;
+      const hz = Math.hypot(fx, fy) || 1;
+      const ps = Math.max(2.2 * s, pr * 0.8) * predScale;
+      tmpBasis.f.set(fx, fy, fz); tmpBasis.l.set(-fy / hz, fx / hz, 0); tmpBasis.u.crossVectors(tmpBasis.f, tmpBasis.l);
+      M4.makeBasis(tmpBasis.f.multiplyScalar(ps), tmpBasis.l.multiplyScalar(ps), tmpBasis.u.multiplyScalar(ps)).setPosition(pp[0], pp[1], pp[2]);
+      predMesh.matrixAutoUpdate = false; predMesh.matrix.copy(M4);
+      predZone.position.set(pp[0], pp[1], pp[2]); predZone.scale.setScalar(pr);
+      const ptp = predTrail.geometry.getAttribute("position"), ptc = predTrail.geometry.getAttribute("color");
+      ptp.setXYZ(0, pp[0], pp[1], pp[2]); ptc.setXYZ(0, tc[0], tc[1], tc[2]);
+      let n = 1;
+      for (let q = 0; q < PRED_TRAIL && kf - q >= 0 && !Number.isNaN(pred[PO(kf - q, r)]); q++, n++) {
+        const o = PO(kf - q, r), a = 1 - (q + 1) / PRED_TRAIL;
+        ptp.setXYZ(n, pred[o], pred[o + 1], pred[o + 2]); ptc.setXYZ(n, tc[0] * a, tc[1] * a, tc[2] * a);
+      }
+      predTrail.geometry.setDrawRange(0, n);
+      ptp.needsUpdate = true; ptc.needsUpdate = true;
+    }
+    }
+    // ground grid under the flock (cell snapped so it doesn't swim)
+    const R0 = Math.max(150, 4 * shape[3 * kf]);
+    ground.scale.set(2 * R0, 2 * R0, 1);
+    ground.position.set(cam.target.x, cam.target.y, gz);
+    const gu = ground.material.uniforms;
+    gu.centre.value.set(cam.target.x, cam.target.y); gu.radius.value = R0;
+    gu.cell.value = Math.pow(10, Math.round(Math.log10(R0 / 8)));
+    scene.fog.density = 0.9 / Math.max(60, cam.dist + 2 * cam.fit);
+    // selection halo, facing the camera
+    halo.visible = userPicked && selected >= 0;
+    if (halo.visible) {
+      stateAt(selected, t, st);
+      halo.position.set(st[0], st[1], st[2]);
+      halo.quaternion.copy(camera.quaternion);
+      const hs = Math.max(2.4 * s, cam.dist * 0.018);
+      halo.scale.set(hs, hs, hs);
+    }
+    // text
+    $("time").value = String(k);
+    $("clock").innerHTML = `t <b>${k * (meta.every || 1)}</b> / ${(T - 1) * (meta.every || 1)}`;
+    const sx = shape[3 * kf], sy = shape[3 * kf + 1], sz = shape[3 * kf + 2];
+    if (!hudBuilt) {
+      $("hud").innerHTML = `<span class="k" style="color:#4cc9f0">order</span><b id="h_or"></b><span class="k">extent σ</span><span id="h_ex"></span>` +
+        `<span class="k" style="color:#ff7a45">thinness</span><b id="h_th"></b><span class="k">climb</span><b id="h_cl"></b>` +
+        `<span class="k" style="color:#ff453a" id="h_prk" hidden>caught</span><b id="h_pr" hidden></b>`;
+      $("hud").appendChild(spark);
+      $("hud").appendChild(mini); $("hud").appendChild(alt);
+      hudBuilt = true;
+    }
+    $("h_or").textContent = order[kf].toFixed(3);
+    if (pred && $("h_pr")) $("h_pr").textContent = pp ? String(pred[PO(kf, 0) + 6]) : "–";
+    $("h_ex").innerHTML = `<b>${sx.toFixed(0)}</b> · ${sy.toFixed(0)} · ${sz.toFixed(0)}`;
+    $("h_th").textContent = (sz / Math.max(1e-9, sx)).toFixed(2);
+    $("h_cl").textContent = (Math.asin(clamp(dirs[c0 + 2], -1, 1)) * 180 / Math.PI).toFixed(1) + "°";
+    $("h_prk").hidden = $("h_pr").hidden = !pred;
+    markSpark(kf);
+    drawMini(kf);
+    shapeMesh.visible = showShape;
+    if (showShape) {
+      const A = axes.subarray(9 * kf, 9 * kf + 9);
+      M4.makeBasis(new THREE.Vector3(A[0], A[1], A[2]).multiplyScalar(2 * sx), new THREE.Vector3(A[3], A[4], A[5]).multiplyScalar(2 * sy),
+        new THREE.Vector3(A[6], A[7], A[8]).multiplyScalar(2 * sz)).setPosition(cam.target);
+      shapeMesh.matrixAutoUpdate = false; shapeMesh.matrix.copy(M4);
+    }
+    if (panelOn && (force || panelKey !== k + ":" + selected)) { panelKey = k + ":" + selected; drawPanel(k); }
+  }
+  let panelKey = "", hudBuilt = false;
+
+  // ---------------- the bird's eye: its visual sphere, equirectangular, in its yaw frame ----------------
+  const eye = $("eye"), ectx = eye.getContext("2d");
+  let eyeImg = null;
+  function drawPanel(k) {
+    const j = selected;
+    if (j < 0) return;
+    $("who").innerHTML = `Bird ${j} <span>t ${k * (meta.every || 1)}</span>`;
+    const W = eye.width, H = eye.height;
+    if (!eyeImg || eyeImg.width !== W) eyeImg = ectx.createImageData(W, H);
+    const px = eyeImg.data;
+    // background: dark sky above the horizon, darker below
+    for (let y = 0; y < H; y++) {
+      const lat = Math.PI / 2 - ((y + 0.5) / H) * Math.PI;
+      const b = lat > 0 ? [11, 17, 34] : [6, 9, 18];
+      for (let x = 0; x < W; x++) { const q = 4 * (y * W + x); px[q] = b[0]; px[q + 1] = b[1]; px[q + 2] = b[2]; px[q + 3] = 255; }
+    }
+    const o = k * N * 5, x0 = traj[o + 5 * j], y0 = traj[o + 5 * j + 1], z0 = traj[o + 5 * j + 2], th0 = traj[o + 5 * j + 3], ph0 = traj[o + 5 * j + 4];
+    const ct = Math.cos(th0), s0 = Math.sin(th0);
+    const R = P.R, asin = P.half_angle === "asin";
+    // far to near, so nearer discs are drawn on top
+    const idx = [];
+    for (let m = 0; m < N; m++) if (m !== j) {
+      const dx = traj[o + 5 * m] - x0, dy = traj[o + 5 * m + 1] - y0, dz = traj[o + 5 * m + 2] - z0;
+      idx.push([Math.hypot(dx, dy, dz), ct * dx + s0 * dy, -s0 * dx + ct * dy, dz]);
+    }
+    idx.sort((a, b) => b[0] - a[0]);
+    const dnear = idx.length ? idx[idx.length - 1][0] : 1;
+    for (const [d, ax, ay, az] of idx) {
+      const alpha = asin ? Math.asin(Math.min(1, R / d)) : Math.atan(R / d);
+      const latc = Math.asin(clamp(az / d, -1, 1)), lonc = Math.atan2(ay, ax);
+      const bright = clamp(1.25 - 0.55 * Math.log(d / dnear + 1e-9) / Math.log(8), 0.28, 1);
+      const col = [233 * bright, 245 * bright, 255 * bright];
+      const y0p = Math.max(0, Math.floor(((Math.PI / 2 - (latc + alpha)) / Math.PI) * H - 0.5));
+      const y1p = Math.min(H - 1, Math.ceil(((Math.PI / 2 - (latc - alpha)) / Math.PI) * H - 0.5));
+      for (let y = y0p; y <= y1p; y++) {
+        const lat = Math.PI / 2 - ((y + 0.5) / H) * Math.PI;
+        const den = Math.cos(lat) * Math.cos(latc), num = Math.cos(alpha) - Math.sin(lat) * Math.sin(latc);
+        let dl;
+        if (den <= 1e-12) { if (num > 0) continue; dl = Math.PI; } else { const r = num / den; if (r > 1) continue; dl = r <= -1 ? Math.PI : Math.acos(r); }
+        // as seen facing ahead: ahead at the centre, left (positive longitude) to the left
+        const u0 = -(lonc + dl) / (2 * Math.PI) + 0.5, u1 = -(lonc - dl) / (2 * Math.PI) + 0.5;
+        const a = Math.ceil(u0 * W - 0.5), b = Math.floor(u1 * W - 0.5);
+        for (let xx = a; xx <= b; xx++) {
+          const x = ((xx % W) + W) % W, q = 4 * (y * W + x);
+          px[q] = col[0]; px[q + 1] = col[1]; px[q + 2] = col[2];
+        }
+      }
+    }
+    ectx.putImageData(eyeImg, 0, 0);
+    // horizon, the heading marker and quadrant ticks
+    ectx.strokeStyle = "rgba(131,144,173,0.55)"; ectx.lineWidth = 1;
+    ectx.beginPath(); ectx.moveTo(0, H / 2 + 0.5); ectx.lineTo(W, H / 2 + 0.5); ectx.stroke();
+    ectx.strokeStyle = "rgba(75,86,115,0.6)";
+    for (let q = 1; q < 4; q++) { ectx.beginPath(); ectx.moveTo((q * W) / 4 + 0.5, 0); ectx.lineTo((q * W) / 4 + 0.5, H); ectx.stroke(); }
+    const hy = (0.5 - ph0 / Math.PI) * H;
+    ectx.strokeStyle = "#4cc9f0"; ectx.lineWidth = 2;
+    ectx.beginPath(); ectx.arc(W / 2, hy, 9, 0, 2 * Math.PI); ectx.stroke();
+    // scores
+    const sc = scores && k < T - 1 ? scores.subarray((k * N + j) * 7, (k * N + j) * 7 + 7) : null;
+    const chosen = k < T - 1 ? moves[k * N + j] : -1;
+    $("scorehead").textContent = sc ? "Branch score W, by first move (this step's decision)" : "Branch scores not stored for this run";
+    let mx = 0;
+    if (sc) for (const v of sc) mx = Math.max(mx, v);
+    $("scores").innerHTML = MOVES.map((m, b) => {
+      const v = sc ? sc[b] : NaN, w = sc && v > 0 ? (100 * v) / mx : 0;
+      return `<div class="row${b === chosen ? " on" : ""}"><span class="sw" style="background:${m.col}"></span><span class="lbl">${m.name}</span>` +
+        `<span class="bar"><i style="width:${w.toFixed(1)}%;background:${m.col}"></i></span><span class="val">${sc ? (v < 0 ? "dead" : v.toPrecision(4)) : "—"}</span></div>`;
+    }).join("");
+  }
+  $("legend").innerHTML = MOVES.map((m) => `<div><span class="sw" style="background:${m.col}"></span>${m.name}</div>`).join("");
+
+  // ---------------- picking: nearest bird on screen ----------------
+  function pick(e) {
+    if (!traj) return;
+    const rect = canvas.getBoundingClientRect(), mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    let best = -1, bd = 18 * 18;
+    for (let j = 0; j < N; j++) {
+      stateAt(j, t, st);
+      V.set(st[0], st[1], st[2]).project(camera);
+      if (V.z > 1) continue;
+      const sx = (V.x * 0.5 + 0.5) * rect.width, sy = (-V.y * 0.5 + 0.5) * rect.height, d = (sx - mx) ** 2 + (sy - my) ** 2;
+      if (d < bd) { bd = d; best = j; }
+    }
+    if (best >= 0) { selected = best; userPicked = true; if (!panelOn) setPanel(true); render(true); }
+  }
+
+  // ---------------- loop & controls ----------------
+  function resize() {
+    const r = canvas.getBoundingClientRect();
+    renderer.setSize(r.width, r.height, false);
+    camera.aspect = r.width / Math.max(1, r.height);
+    camera.updateProjectionMatrix();
+  }
+  new ResizeObserver(resize).observe(canvas);
+  let prevTs = null;
+  function frame(ts) {
+    const dt = prevTs === null ? 0 : Math.min(0.1, (ts - prevTs) / 1000);
+    prevTs = ts;
+    if (playing && traj) {
+      t += dt * speed;
+      if (t >= T - 1) { t = T - 1; setPlaying(false); }
+    }
+    if (traj) { render(false); placeCamera(dt); renderer.render(scene, camera); }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  // Scripting hook (headless screenshots and frame-by-frame movie capture): seek to a fractional time and draw
+  // synchronously; snap: put the camera straight onto the flock instead of easing towards it.
+  window.FSM3D = {
+    seek(tf, snap = true) { t = clamp(tf, 0, T - 1); render(true); if (snap) cam.ready = false; placeCamera(1 / 30); render(true); renderer.render(scene, camera); return Math.round(t); },
+    view(az, el, zoom) { if (az !== undefined) cam.az = az; if (el !== undefined) cam.el = el; if (zoom !== undefined) cam.zoom = zoom; },
+    select(j) { selected = j; userPicked = true; },
+    set(opts) { if (opts.shape !== undefined) showShape = opts.shape; if (opts.trail !== undefined) trailLen = opts.trail; if (opts.size !== undefined) birdSize = opts.size; if (opts.colour) colourMode = opts.colour; if (opts.follow !== undefined) setFollow(opts.follow); if (opts.predScale !== undefined) predScale = opts.predScale; },
+    aim(a) { aim = a; },  // [x, y, z, distance] overrides the flock-centred camera target; null restores it
+    pos(tf, j) { stateAt(j, tf, st); return [st[0], st[1], st[2]]; },
+    dir(tf) { const k = 3 * clamp(Math.floor(tf), 0, T - 1); return [dirs[k], dirs[k + 1], dirs[k + 2]]; },  // mean heading
+    pred(tf) { const o = []; for (let r = 0; r < NP && pred; r++) { const q = predAt(tf, r, new Float32Array(6)); o.push(q ? Array.from(q) : null); } return o; },
+    get info() { return { T, N, t, every: meta && meta.every }; },
+  };
+  function setPlaying(v) { playing = v; $("play").textContent = v ? "Pause" : "Play"; $("play").setAttribute("aria-label", v ? "Pause" : "Play"); }
+  function setFollow(v) { follow = v; $("follow").setAttribute("aria-pressed", String(v)); }
+  function setPanel(v) {
+    panelOn = v; $("app").classList.toggle("nopanel", !v); $("birdview").setAttribute("aria-pressed", String(v));
+    try { localStorage.setItem("fsm3d-panel", v ? "on" : "off"); } catch (e) { /* storage unavailable */ }
+    setTimeout(resize, 0);
+  }
+  const SPEEDS = [1, 2, 4, 8, 15, 30, 60];
+  function setSpeed(i) { speed = SPEEDS[clamp(i, 0, SPEEDS.length - 1)]; $("speedval").textContent = speed + " steps/s"; }
+  $("play").onclick = () => { if (t >= T - 1) t = 0; setPlaying(!playing); };
+  $("prev").onclick = () => { setPlaying(false); t = Math.max(0, Math.round(t) - 1); };
+  $("next").onclick = () => { setPlaying(false); t = Math.min(T - 1, Math.round(t) + 1); };
+  $("time").oninput = (e) => { setPlaying(false); t = +e.target.value; };
+  $("slower").onclick = () => setSpeed(SPEEDS.indexOf(speed) - 1);
+  $("faster").onclick = () => setSpeed(SPEEDS.indexOf(speed) + 1);
+  $("follow").onclick = () => setFollow(!follow);
+  $("spin").onclick = () => { spin = !spin; $("spin").setAttribute("aria-pressed", String(spin)); };
+  $("shape").onclick = () => { showShape = !showShape; $("shape").setAttribute("aria-pressed", String(showShape)); };
+  $("slice").onclick = () => { slice = !slice; $("slice").setAttribute("aria-pressed", String(slice)); render(true); };
+  $("birdview").onclick = () => setPanel(!panelOn);
+  $("hidepanel").onclick = () => setPanel(false);
+  $("trail").oninput = (e) => { trailLen = +e.target.value; };
+  $("size").oninput = (e) => { birdSize = +e.target.value; };
+  $("colour").onchange = (e) => { colourMode = e.target.value; };
+  $("run").onchange = (e) => {
+    const v = e.target.value;
+    if (v.startsWith("2d:")) { location.href = "index.html?run=" + encodeURIComponent(v.slice(3)); return; }  // the 2D viewer
+    loadRun(v).catch(showErr);
+  };
+  window.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT" && e.target.type !== "range") return;
+    if (e.code === "Space") { e.preventDefault(); $("play").click(); }
+    else if (e.key === "ArrowLeft") { setPlaying(false); t = Math.max(0, Math.round(t) - (e.shiftKey ? 10 : 1)); }
+    else if (e.key === "ArrowRight") { setPlaying(false); t = Math.min(T - 1, Math.round(t) + (e.shiftKey ? 10 : 1)); }
+    else if (e.key === "[") $("slower").click();
+    else if (e.key === "]") $("faster").click();
+    else if (e.key === "f" || e.key === "F") $("follow").click();
+  });
+  function showErr(err) { $("loading").hidden = false; $("loading").textContent = "Could not load: " + err.message; console.error(err); }
+  setPanel(panelOn); setSpeed(3);
+  (async () => {
+    try {
+      const all = FSMData.runs();
+      runs = all.filter((r) => r.dims === 3);
+      const runs2 = all.filter((r) => r.dims !== 3);
+      $("run").innerHTML = (runs.length ? `<optgroup label="3D">` : "") + runs.map((r) => `<option value="${r.id}">${r.label}</option>`).join("") + (runs.length ? `</optgroup>` : "") +
+        (runs2.length ? `<optgroup label="2D (opens the 2D viewer)">` + runs2.map((r) => `<option value="2d:${r.id}">${r.label}</option>`).join("") + `</optgroup>` : "");
+      const asked = new URLSearchParams(location.search).get("run");
+      const first = asked && runs.some((r) => r.id === asked) ? asked : runs.length ? runs[0].id : null;
+      if (first) { $("run").value = first; await loadRun(first); }
+      else showErr(new Error("no 3D runs are bundled with this viewer (build a bundle with scripts/build_viewer.py)"));
+    } catch (err) { showErr(err); }
+  })();
+})();
+</script>

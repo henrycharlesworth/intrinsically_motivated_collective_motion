@@ -1,0 +1,1160 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Future State Flock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap">
+<style>
+  /* Single, deliberate night-sky look: the flock canvas is the page. */
+  :root {
+    color-scheme: dark;
+    --ground: #070a12;
+    --ground-2: #0b1020;
+    --panel: #0e1424;
+    --panel-edge: #232c44;
+    --ink: #dfe8f7;
+    --muted: #8390ad;
+    --faint: #4b5673;
+    --right: #4cc9f0;
+    --left: #f72585;
+    --slow: #7b8cff;
+    --cruise: #e9f5ff;
+    --fast: #ffb703;
+    --pruned: #ff4646;
+    --serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.45;
+    overflow: hidden;
+  }
+  .app {
+    height: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 390px;
+  }
+  .app.nopanel { grid-template-columns: minmax(0, 1fr); }
+  .app.nopanel .panel { display: none; }
+  .stage { position: relative; min-width: 0; min-height: 0; }
+  #sky.dragging { cursor: grabbing; }
+  #sky, #skygl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #sky { cursor: crosshair; }
+  /* world-fixed references: north-up minimap of the whole run, compass needle and grid scale */
+  .worldref { position: absolute; top: 20px; right: 20px; display: grid; justify-items: end; gap: 6px; pointer-events: none; }
+  #minimap { width: 190px; height: 190px; border-radius: 10px; background: rgba(9, 13, 26, 0.78); border: 1px solid var(--panel-edge); display: block; }
+  .worldref .refline { display: flex; align-items: center; gap: 8px; font: 11px/1.2 var(--mono, ui-monospace, monospace); color: var(--muted); }
+  #compass { width: 34px; height: 34px; display: block; }
+  @media (max-width: 760px) { .worldref { display: none; } }
+  .masthead {
+    position: absolute; top: 20px; left: 24px; right: 24px;
+    display: flex; flex-direction: column; gap: 4px; pointer-events: none;
+  }
+  .masthead h1 {
+    margin: 0; font-family: var(--serif); font-weight: 400; font-size: 30px; letter-spacing: 0.005em;
+    text-wrap: balance;
+  }
+  .masthead h1 em { color: var(--muted); }
+  .dimswitch { display: inline-flex; gap: 2px; margin-left: 10px; vertical-align: 6px; font-family: var(--mono); font-size: 12px; pointer-events: auto; }
+  .dimswitch b, .dimswitch a { padding: 2px 8px; border: 1px solid var(--panel-edge); border-radius: 6px; font-weight: 500; }
+  .dimswitch b { color: var(--ground); background: var(--ink); border-color: var(--ink); }
+  .dimswitch a { color: var(--muted); text-decoration: none; }
+  .dimswitch a:hover { color: var(--ink); border-color: #3a4666; }
+  .runpick { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; pointer-events: auto; }
+  .runpick select { max-width: min(420px, 70vw); }
+  .filebtn { position: relative; overflow: hidden; }
+  .filebtn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .filebtn:focus-within { outline: 2px solid var(--right); outline-offset: 2px; }
+  .drop {
+    position: absolute; inset: 12px; border: 2px dashed var(--right); border-radius: 16px;
+    display: grid; place-items: center; background: rgba(7, 10, 18, 0.7); color: var(--ink);
+    font-size: 15px; pointer-events: none; z-index: 5;
+  }
+  .drop[hidden] { display: none; }
+  .runline { font-family: var(--mono); font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  .runline b { color: var(--ink); font-weight: 500; }
+  .hint {
+    position: absolute; left: 24px; bottom: 124px; font-size: 12px; color: var(--faint); pointer-events: none;
+  }
+  .transport {
+    position: absolute; left: 16px; right: 16px; bottom: 16px;
+    display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap;
+    padding: 10px 14px; border-radius: 12px;
+    background: rgba(14, 20, 36, 0.82); border: 1px solid var(--panel-edge);
+    backdrop-filter: blur(6px);
+  }
+  button, select {
+    font: inherit; color: var(--ink); background: #151d33; border: 1px solid var(--panel-edge);
+    border-radius: 8px; padding: 6px 10px; cursor: pointer;
+  }
+  button:hover, select:hover { border-color: #3a4666; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--right); outline-offset: 2px; }
+  #play { width: 74px; font-weight: 500; }
+  .steps, .zoom { display: flex; gap: 6px; align-items: center; }
+  .zoom button { min-width: 34px; padding-inline: 8px; }
+  #zoomval { font-family: var(--mono); font-size: 12px; color: var(--muted); min-width: 4.5ch; text-align: right; font-variant-numeric: tabular-nums; }
+  button[aria-pressed="true"] { border-color: var(--right); color: var(--ink); }
+  button[aria-pressed="false"] { color: var(--muted); }
+  #prev, #next { width: 38px; padding-inline: 0; font-size: 12px; }
+  .scrub { flex: 1 1 100%; order: -1; display: flex; align-items: center; gap: 12px; min-width: 0; }
+  input[type="range"] { flex: 1; min-width: 0; accent-color: var(--right); }
+  .clock { font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .clock b { color: var(--ink); font-weight: 500; }
+  .opts { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-left: auto; }
+  .opts label { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .opts input[type="range"] { width: 80px; flex: none; }
+
+  .panel {
+    background: var(--panel); border-left: 1px solid var(--panel-edge);
+    display: flex; flex-direction: column; gap: 14px; padding: 20px 20px 18px; overflow-y: auto; min-height: 0;
+  }
+  .panel h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: 24px; }
+  .panel h2 span { font-family: var(--mono); font-size: 13px; color: var(--muted); margin-left: 6px; }
+  .eyebrow { font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+  #mind { width: 100%; aspect-ratio: 1; max-width: 100%; display: block; border-radius: 10px; background: var(--ground-2); }
+  .status { font-family: var(--mono); font-size: 11.5px; color: var(--faint); min-height: 1.4em; }
+  .scores { display: flex; flex-direction: column; gap: 3px; }
+  .scores .row {
+    display: grid; grid-template-columns: 58px 1fr 76px; gap: 10px; align-items: center; text-align: left;
+    background: transparent; border: 1px solid transparent; border-radius: 7px; padding: 4px 6px;
+  }
+  .scores .row:hover { border-color: var(--panel-edge); }
+  .scores .row.shown { border-color: #3a4666; background: #121a2e; }
+  .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  #hidepanel { font-size: 12px; padding: 4px 9px; color: var(--muted); }
+  .scores .lbl { font-size: 12.5px; color: var(--muted); }
+  .scores .lbl.on { color: var(--ink); font-weight: 600; }
+  .bar { height: 10px; border-radius: 3px; background: #151d33; overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 3px; }
+  .val { font-family: var(--mono); font-size: 12px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .val.on { color: var(--ink); }
+  .legend { display: grid; gap: 7px; font-size: 12.5px; color: var(--muted); }
+  .legend div { display: flex; gap: 9px; align-items: baseline; }
+  .sw { flex: none; width: 10px; height: 10px; border-radius: 50%; transform: translateY(1px); }
+  .explain { font-size: 13px; color: var(--muted); max-width: 62ch; }
+  .explain b { color: var(--ink); font-weight: 500; }
+  .loading {
+    position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted);
+    font-family: var(--mono); font-size: 13px; pointer-events: none;
+  }
+  .loading[hidden] { display: none; }
+
+  @media (max-width: 860px) {
+    body { overflow: auto; }
+    .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(420px, 62vh) auto; height: auto; }
+    .panel { border-left: 0; border-top: 1px solid var(--panel-edge); padding-inline: 16px; }
+    #mind { max-width: 420px; margin-inline: auto; }
+    .masthead { left: 16px; right: 16px; top: 14px; }
+    .masthead h1 { font-size: 24px; }
+    .hint { display: none; }
+    .transport { left: 8px; right: 8px; bottom: 8px; gap: 10px; padding: 8px 10px; }
+    .opts { display: none; }
+    .app.nopanel { grid-template-rows: minmax(420px, 80vh); }
+  }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<div class="app" id="app">
+  <main class="stage" aria-label="Flock view">
+    <canvas id="skygl" aria-hidden="true"></canvas>
+    <canvas id="sky"></canvas>
+    <div class="loading" id="loading">loading trajectory…</div>
+    <div class="worldref" aria-hidden="true">
+      <canvas id="minimap" width="380" height="380" title="The whole run from above, north up: the swarm's path, the birds now, and the part shown in the main view"></canvas>
+      <div class="refline"><span id="gridlabel"></span><canvas id="compass" width="68" height="68"></canvas></div>
+    </div>
+    <header class="masthead">
+      <h1>Future State Maximisation <em>· flock</em> <span class="dimswitch"><b>2D</b><a href="3d.html">3D</a></span></h1>
+      <div class="runline" id="runline"></div>
+      <div class="runpick">
+        <label for="run" class="eyebrow">Experiment</label>
+        <select id="run" aria-label="Choose an experiment"></select>
+        <button type="button" class="filebtn" title="Load PREFIX.json, PREFIX.traj and PREFIX.moves written by a simulator">Open run files…
+          <input id="files" type="file" multiple accept=".json,.traj,.moves" aria-label="Open run files">
+        </button>
+      </div>
+    </header>
+    <div class="drop" id="drop" hidden>Drop a run's PREFIX.json, PREFIX.traj and PREFIX.moves here</div>
+    <div class="hint">Click a bird to inspect it · drag to pan · scroll to zoom · Space plays · ← → step (⇧ ×10) · [ ] speed</div>
+    <div class="transport" role="group" aria-label="Playback">
+      <div class="steps">
+        <button id="prev" type="button" aria-label="Previous step" title="Previous step (←)">◀</button>
+        <button id="play" type="button" aria-label="Play">Play</button>
+        <button id="next" type="button" aria-label="Next step" title="Next step (→)">▶</button>
+      </div>
+      <div class="scrub">
+        <input id="time" type="range" min="0" max="1" step="1" value="0" aria-label="Time step">
+        <span class="clock" id="clock">t <b>0</b></span>
+      </div>
+      <div class="zoom" role="group" aria-label="Zoom">
+        <button id="zoomout" type="button" aria-label="Zoom out" title="Zoom out">−</button>
+        <span id="zoomval">1.0×</span>
+        <button id="zoomin" type="button" aria-label="Zoom in" title="Zoom in">+</button>
+        <button id="zoomfit" type="button" title="Reset zoom and pan">Fit</button>
+      </div>
+      <div class="zoom" role="group" aria-label="Playback speed">
+        <button id="slower" type="button" aria-label="Slower" title="Slower ( [ )">«</button>
+        <span id="speedval" title="Playback speed in simulation steps per second">10 steps/s</span>
+        <button id="faster" type="button" aria-label="Faster" title="Faster ( ] )">»</button>
+      </div>
+      <button id="birdview" type="button" aria-pressed="false" title="Show or hide the bird's-head panel">Bird view</button>
+      <div class="opts">
+        <label for="trail">trail <input id="trail" type="range" min="0" max="16" step="1" value="6" aria-describedby="trailval"> <span id="trailval" class="mono">10</span></label>
+        <label for="colour">colour
+          <select id="colour">
+            <option value="heading" selected>heading</option>
+            <option value="speed">speed</option>
+          </select>
+        </label>
+        <label for="camera" title="What the camera follows">camera
+          <select id="camera">
+            <option value="auto" selected>auto</option>
+            <option value="flock">largest flock</option>
+            <option value="swarm">whole swarm</option>
+          </select>
+        </label>
+        <label for="turn" title="Turn the view with the flock's heading (off: the world's axes stay fixed on screen)"><input id="turn" type="checkbox"> turn</label>
+      </div>
+    </div>
+  </main>
+
+  <aside class="panel" aria-label="Selected bird">
+    <div class="panel-head">
+      <div class="eyebrow">Inside one bird's head</div>
+      <button id="hidepanel" type="button">Hide</button>
+    </div>
+    <h2 id="who">Bird <span>t —</span></h2>
+    <canvas id="mind" width="700" height="700" aria-label="The selected bird's possible futures"></canvas>
+    <div class="status" id="status"></div>
+    <div class="eyebrow" id="scorehead">Branch score W, by first move · click one to show its ring</div>
+    <div class="scores" id="scores"></div>
+    <div class="legend">
+      <div><span class="sw" style="background: var(--ink)"></span><span><b style="color:var(--ink);font-weight:500">Inner ring</b>: what it sees right now (other birds' silhouettes)</span></div>
+      <div><span class="sw" style="background: var(--left)"></span><span><b style="color:var(--ink);font-weight:500">Dots</b>: every collision-free position it could reach within τ steps, coloured by first move; the shown move is bright</span></div>
+    </div>
+    <p class="explain" id="explain">Each step, every bird imagines all its move sequences τ steps ahead, assuming the others fly straight on. The <b>outer ring</b> is drawn for one first move (the chosen one unless you click another). Take all the futures that start with that move. For each direction around the bird, p is the share of those futures in which a neighbour fills that direction. The ring's thickness is 4p(1−p): zero where every future agrees (always empty or always blocked), fullest where it's a coin flip. The area of the ring is the move's score W, and the bird picks the move with the most.</p>
+  </aside>
+</div>
+
+<script src="js/fsm-core.js"></script>
+<script src="js/data.js"></script>
+<script src="data/runs.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const sky = $("sky"), ctx = sky.getContext("2d");
+  const mind = $("mind"), mctx = mind.getContext("2d");
+  const BRANCH = [
+    { name: "right", col: "#4cc9f0" }, { name: "left", col: "#f72585" }, { name: "slow", col: "#7b8cff" },
+    { name: "cruise", col: "#e9f5ff" }, { name: "fast", col: "#ffb703" },
+  ];
+  const HEAD_STOPS = ["#3a86ff", "#4cc9f0", "#dff6ff", "#ffb4a2", "#f72585"];
+  const SPEED_STOPS = ["#4895ef", "#e9f5ff", "#ffb703"];
+  const NB = 11; // colour buckets
+
+  const hex = (h) => [1, 3, 5].map((k) => parseInt(h.slice(k, k + 2), 16));
+  const ramp = (stops, n) => {
+    const c = stops.map(hex), out = [];
+    for (let q = 0; q < n; q++) {
+      const x = (q / (n - 1)) * (c.length - 1), a = Math.min(c.length - 2, Math.floor(x)), f = x - a;
+      out.push(c[a].map((v, k) => Math.round(v + (c[a + 1][k] - v) * f)));
+    }
+    return out;
+  };
+  const HEAD_RAMP = ramp(HEAD_STOPS, NB), SPEED_RAMP = ramp(SPEED_STOPS, 3);
+
+  let meta, P, T, N, traj, moves, cam, meanHead, runId = 0, every = 1;  // every: frames are every this many steps
+  let t = 0, playing = false, lastTs = null, selected = 0;
+  let picked = false;  // a bird was clicked this run; until then (and with Bird view off) nothing is highlighted
+  let decision = null; // latest computed decision for the selected bird
+  let shownBranch = null; // branch whose ring is shown (null = the chosen move)
+  let zoom = 1, panU = 0, panV = 0; // user zoom and pan, in the camera frame (world units)
+  let panelOn = false;  // off by default: playback stays at full frame rate; "Bird view" turns it on (remembered)
+  try { panelOn = localStorage.getItem("fsm-panel") === "on"; } catch (e) { /* storage unavailable */ }
+  const cache = new Map();
+  // Timings, readable from the console as FSMViewerStats: main-view draw (JS, smoothed), bird panel, last decision.
+  const stats = (window.FSMViewerStats = { drawMs: 0, mindMs: 0, decision: null });
+  // Worker pool: each worker prunes collisions for the bird (cheap) and paints a slice of its future positions;
+  // the main thread sums the slices (FSMCore.combineFast).
+  const NWORK = Math.max(1, Math.min(12, (navigator.hardwareConcurrency || 4) - 1));
+  let workers = [], busy = false, pending = null, job = null, jobSeq = 0, fastTpl = null;
+
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+
+  function frameArrays(k) {
+    const x = new Float64Array(N), y = new Float64Array(N), th = new Float64Array(N);
+    const o = k * N * 3;
+    for (let j = 0; j < N; j++) { x[j] = traj[o + 3 * j]; y[j] = traj[o + 3 * j + 1]; th[j] = traj[o + 3 * j + 2]; }
+    return { x, y, th };
+  }
+
+  // ---------------- workers: recompute one bird's decision from the saved frame ----------------
+  function startWorker() {
+    const body = FSMCore.workerSource() + `
+      let params = null, fast = null;
+      self.onmessage = (e) => {
+        const m = e.data, C = self.FSMCore;
+        if (m.type === "init") {
+          params = m.params;
+          fast = C.buildFastTemplate(params);
+          return;
+        }
+        const t0 = performance.now();
+        const prep = C.prepareAgent(params, fast, m.frame, m.agent);
+        const t1 = performance.now();
+        const a = Math.floor((fast.P * m.w) / m.nw), b = Math.floor((fast.P * (m.w + 1)) / m.nw);
+        const part = C.paintRange(params, fast, prep, a, b);
+        const msg = { job: m.job, D: part.D, base: part.base, prof: [t1 - t0, performance.now() - t1] }, tr = [part.D.buffer];
+        if (m.w === 0) { msg.mult = prep.mult; msg.vis = C.visualField(params, m.frame, m.agent); tr.push(prep.mult.buffer); }
+        self.postMessage(msg, tr);
+      };`;
+    const url = URL.createObjectURL(new Blob([body], { type: "text/javascript" }));
+    for (let w = 0; w < NWORK; w++) {
+      const wk = new Worker(url);
+      wk.onerror = (e) => { console.error("worker error", e.message); $("status").textContent = "Could not compute this bird's futures: " + e.message; };
+      wk.onmessage = (e) => onPart(e.data);
+      workers.push(wk);
+    }
+  }
+  function onPart(m) {
+    if (!job || m.job !== job.id) return;  // stale
+    job.parts.push(m);
+    if (m.mult) { job.mult = m.mult; job.vis = m.vis; }
+    if (job.parts.length < job.nw) return;
+    const tc = performance.now();
+    const r = FSMCore.combineFast(P, fastTpl, job.frame, job.agent, { mult: job.mult }, job.parts, 384);
+    r.vis = job.vis;
+    r.prof = { prepare: Math.max(...job.parts.map((q) => q.prof[0])), paint: Math.max(...job.parts.map((q) => q.prof[1])),
+      combine: performance.now() - tc };
+    Object.assign(r, { key: job.key, run: job.run, step: job.step, agent: job.agent, ms: performance.now() - job.t0 });
+    cache.set(r.key, r);
+    if (cache.size > 40) cache.delete(cache.keys().next().value);
+    busy = false; job = null;
+    stats.decision = Object.assign({ total: r.ms }, r.prof || {});
+    if (r.run === runId && r.agent === selected) { decision = r; drawMind(); }
+    if (pending) { const q = pending; pending = null; request(q.step, q.agent); }
+  }
+  function request(step, agent) {
+    if (!panelOn && (playing || !picked)) return;  // nothing on screen needs it
+    const key = runId + ":" + step + ":" + agent;
+    if (cache.has(key)) {
+      decision = cache.get(key); drawMind(); return;
+    }
+    if (busy) { pending = { step, agent }; setStatus(step); return; }
+    busy = true;
+    setStatus(step);
+    const frame = frameArrays(step), nw = workers.length;
+    job = { id: ++jobSeq, key, run: runId, step, agent, frame, nw, parts: [], t0: performance.now() };
+    for (let w = 0; w < nw; w++) workers[w].postMessage({ type: "eval", job: job.id, agent, frame, w, nw });
+  }
+  function setStatus(step) {
+    const s = $("status");
+    if (decision && decision.agent === selected && decision.step === step)
+      s.textContent = `recomputed in your browser (${Math.round(decision.ms || 0)} ms, ${workers.length} workers)`;
+    else s.textContent = `imagining ${(P.tau)} steps ahead for t = ${step}…`;
+  }
+
+  // ---------------- WebGL2 flock renderer ----------------
+  // The whole trajectory lives in one RGBA32F texture (x, y, theta per agent-step, row-major by step); trails are
+  // instanced quads (one per agent per trailing step, positions interpolated in the vertex shader) and heads are
+  // instanced capsules, all blended additively like the 2D "lighter" path. CPU work per frame: N colour values.
+  function makeGL(canvas) {
+    const gl = canvas.getContext("webgl2", { antialias: true, alpha: false, premultipliedAlpha: false });
+    if (!gl) return null;
+    const TEXW = 4096, WIN = 128;  // texture width; frames per window
+    const common = `#version 300 es
+      precision highp float; precision highp int; precision highp sampler2D;
+      uniform sampler2D uTraj; uniform int uN, uT, uK0; uniform float uTime;
+      uniform vec2 uCam, uOrigin, uPan, uView; uniform float uCa, uSa, uSc;
+      uniform vec3 uRamp[16]; uniform int uNR;
+      // the texture holds a window of WIN frames starting at frame uK0 (refilled as the playhead moves)
+      vec3 fetchP(int k, int j) { int q = clamp(k - uK0, 0, ${WIN - 1}) * uN + j; return texelFetch(uTraj, ivec2(q % ${TEXW}, q / ${TEXW}), 0).xyz; }
+      vec2 posAt(float tt, int j) {
+        int k = clamp(int(floor(tt)), 0, uT - 1), k2 = min(uT - 1, k + 1);
+        float f = tt - float(k);
+        return mix(fetchP(k, j).xy, fetchP(k2, j).xy, f);
+      }
+      vec2 scr(vec2 p) {  // world -> pixels (same transform as viewOf)
+        vec2 d = p - uCam;
+        return vec2(uOrigin.x + (uCa * d.x - uSa * d.y - uPan.x) * uSc, uOrigin.y - (uSa * d.x + uCa * d.y - uPan.y) * uSc);
+      }
+      vec4 clip(vec2 px) { return vec4(px.x / uView.x * 2.0 - 1.0, 1.0 - px.y / uView.y * 2.0, 0.0, 1.0); }
+      vec3 rampAt(float c) { float x = c * float(uNR - 1); int a = int(floor(x)); int b = min(uNR - 1, a + 1); return mix(uRamp[a], uRamp[b], x - float(a)); }
+    `;
+    const trailVS = common + `
+      in float aC; uniform float uL, uWidth;
+      out vec3 vCol; out float vA, vE;
+      void main() {
+        int j = gl_InstanceID, seg = gl_VertexID / 6, cr = gl_VertexID - seg * 6;
+        float ta = max(0.0, uTime - float(seg)), tb = max(max(0.0, uTime - float(seg + 1)), uTime - uL);
+        if (ta <= tb) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+        vec2 A = scr(posAt(ta, j)), B = scr(posAt(tb, j)), d = B - A;
+        float len = length(d); vec2 dir = len > 1e-4 ? d / len : vec2(1.0, 0.0), nrm = vec2(-dir.y, dir.x);
+        int c = cr == 0 ? 0 : cr == 1 ? 1 : cr == 2 ? 2 : cr == 3 ? 1 : cr == 4 ? 3 : 2;  // A-, A+, B-, B+
+        float side = (c == 1 || c == 3) ? 1.0 : -1.0;
+        vec2 P = (c < 2 ? A : B) + nrm * side * (uWidth * 0.5 + 0.75);
+        vE = side * (uWidth * 0.5 + 0.75);
+        float age = (uTime - 0.5 * (ta + tb)) / uL;
+        vA = 0.5 * pow(clamp(1.0 - age, 0.0, 1.0), 1.6);
+        vCol = rampAt(aC);
+        gl_Position = clip(P);
+      }`;
+    const trailFS = `#version 300 es
+      precision highp float; uniform float uWidth; in vec3 vCol; in float vA, vE; out vec4 o;
+      void main() { float cov = clamp(uWidth * 0.5 + 0.5 - abs(vE), 0.0, 1.0); o = vec4(vCol * vA * cov, 1.0); }`;
+    const headVS = common + `
+      in float aC; uniform float uBody, uWidth;
+      out vec3 vCol; out vec2 vL; out float vLen;
+      void main() {
+        int j = gl_InstanceID, cr = gl_VertexID;
+        int k = clamp(int(floor(uTime)), 0, uT - 1), kc = min(uT - 1, k + 1);
+        vec2 P = scr(posAt(uTime, j));
+        float a = fetchP(kc, j).z - atan(uSa, uCa) * -1.0;
+        vec2 dir = vec2(cos(a), -sin(a)), nrm = vec2(-dir.y, dir.x);
+        vec2 A = P - dir * uBody, B = P + dir * 0.6 * uBody;
+        float len = 1.6 * uBody, r = uWidth * 0.5 + 1.0;
+        int c = cr == 0 ? 0 : cr == 1 ? 1 : cr == 2 ? 2 : cr == 3 ? 1 : cr == 4 ? 3 : 2;
+        float u = (c < 2 ? -r : len + r), v = (c == 1 || c == 3) ? r : -r;
+        vL = vec2(u, v); vLen = len;
+        vCol = rampAt(aC);
+        gl_Position = clip(A + dir * u + nrm * v);
+      }`;
+    const headFS = `#version 300 es
+      precision highp float; uniform float uWidth, uAlpha, uWhite; in vec3 vCol; in vec2 vL; in float vLen; out vec4 o;
+      void main() {
+        float dx = vL.x < 0.0 ? vL.x : (vL.x > vLen ? vL.x - vLen : 0.0);  // capsule around the segment [0, len]
+        float dist = length(vec2(dx, vL.y));
+        float cov = clamp(uWidth * 0.5 + 0.5 - dist, 0.0, 1.0);
+        vec3 col = mix(vCol, vec3(1.0), uWhite);
+        o = vec4(col * uAlpha * cov, 1.0);
+      }`;
+    const bgVS = `#version 300 es
+      out vec2 vP; void main() { vec2 p = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0); vP = p; gl_Position = vec4(p, 0.0, 1.0); }`;
+    const bgFS = `#version 300 es
+      precision highp float; uniform vec2 uView; in vec2 vP; out vec4 o;
+      void main() {
+        vec2 px = vec2((vP.x + 1.0) * 0.5 * uView.x, (1.0 - vP.y) * 0.5 * uView.y);
+        float r = clamp(length(px - 0.45 * uView) / (0.6 * length(uView)), 0.0, 1.0);
+        o = vec4(mix(vec3(13.0, 20.0, 40.0), vec3(5.0, 7.0, 13.0), r) / 255.0, 1.0);
+      }`;
+    const prog = (vs, fs) => {
+      const p = gl.createProgram();
+      for (const [type, src] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]]) {
+        const sh = gl.createShader(type);
+        gl.shaderSource(sh, src); gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+        gl.attachShader(p, sh);
+      }
+      gl.bindAttribLocation(p, 0, "aC");
+      gl.linkProgram(p);
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+      const u = {};
+      const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+      for (let q = 0; q < n; q++) { const info = gl.getActiveUniform(p, q); const nm = info.name.replace(/\[0\]$/, ""); u[nm] = gl.getUniformLocation(p, info.name); }
+      return { p, u };
+    };
+    const P_TRAIL = prog(trailVS, trailFS), P_HEAD = prog(headVS, headFS), P_BG = prog(bgVS, bgFS);
+    const vao = gl.createVertexArray(), cbuf = gl.createBuffer(), tex = gl.createTexture();
+    gl.bindVertexArray(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, cbuf);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 1, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribDivisor(0, 1);
+    let nAg = 0, nT = 0, cvals = new Float32Array(0), vw = 1, vh = 1;
+    let src = null, k0 = -1, winData = null, rows = 0;  // CPU trajectory; first frame of the uploaded window
+    const fill = (kstart) => {  // upload frames kstart .. kstart + WIN - 1 (clamped) into the window texture
+      k0 = Math.max(0, Math.min(kstart, nT - WIN));
+      const n = Math.min(WIN, nT) * nAg, base = k0 * nAg;
+      for (let q = 0; q < n; q++) { winData[4 * q] = src[3 * (base + q)]; winData[4 * q + 1] = src[3 * (base + q) + 1]; winData[4 * q + 2] = src[3 * (base + q) + 2]; }
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, TEXW, rows, gl.RGBA, gl.FLOAT, winData);
+    };
+    const api = {
+      resize(w, h) { canvas.width = w; canvas.height = h; vw = w; vh = h; },
+      upload(trajF32, T_, N_) {  // trajF32: [T*N*3] x, y, theta; only a window of frames lives on the GPU
+        nAg = N_; nT = T_; src = trajF32;
+        rows = Math.ceil((Math.min(WIN, T_) * N_) / TEXW);
+        if (rows > gl.getParameter(gl.MAX_TEXTURE_SIZE)) throw new Error("too many agents for the frame window");
+        winData = new Float32Array(rows * TEXW * 4);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, TEXW, rows, 0, gl.RGBA, gl.FLOAT, null);
+        k0 = -1;
+        cvals = new Float32Array(N_);
+        gl.bindBuffer(gl.ARRAY_BUFFER, cbuf);
+        gl.bufferData(gl.ARRAY_BUFFER, cvals, gl.DYNAMIC_DRAW);
+      },
+      frame(v, c, buckets, rampNow, L) {
+        // frames needed: the trail behind the playhead and the next one
+        const lo = Math.max(0, Math.floor(t - L) - 1), hi = Math.min(nT - 1, Math.floor(t) + 1);
+        if (k0 < 0 || lo < k0 || hi > k0 + WIN - 1) fill(lo - 8);
+        gl.viewport(0, 0, vw, vh);
+        gl.disable(gl.BLEND);
+        gl.useProgram(P_BG.p);
+        gl.uniform2f(P_BG.u.uView, vw, vh);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        const nr = rampNow.length;
+        for (let j = 0; j < nAg; j++) cvals[j] = nr > 1 ? buckets[j] / (nr - 1) : 0;
+        gl.bindVertexArray(vao);
+        gl.bindBuffer(gl.ARRAY_BUFFER, cbuf);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, cvals);
+        const rampFlat = new Float32Array(48);
+        rampNow.forEach((rgb, q) => { rampFlat[3 * q] = rgb[0] / 255; rampFlat[3 * q + 1] = rgb[1] / 255; rampFlat[3 * q + 2] = rgb[2] / 255; });
+        const setCommon = (pr) => {
+          const u = pr.u;
+          gl.uniform1i(u.uTraj, 0); gl.uniform1i(u.uN, nAg); gl.uniform1i(u.uT, nT); gl.uniform1i(u.uK0, k0); gl.uniform1f(u.uTime, t);
+          gl.uniform2f(u.uCam, c.x, c.y); gl.uniform2f(u.uOrigin, v.ox, v.oy); gl.uniform2f(u.uPan, panU, panV);
+          gl.uniform2f(u.uView, vw, vh); gl.uniform1f(u.uCa, Math.cos(-c.a)); gl.uniform1f(u.uSa, Math.sin(-c.a)); gl.uniform1f(u.uSc, v.sc);
+          gl.uniform3fv(u.uRamp, rampFlat); gl.uniform1i(u.uNR, nr);
+        };
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+        if (L > 0) {
+          gl.useProgram(P_TRAIL.p); setCommon(P_TRAIL);
+          gl.uniform1f(P_TRAIL.u.uL, L); gl.uniform1f(P_TRAIL.u.uWidth, Math.max(0.8, 0.5 * dpr));
+          gl.drawArraysInstanced(gl.TRIANGLES, 0, 6 * Math.ceil(L), nAg);
+        }
+        gl.useProgram(P_HEAD.p); setCommon(P_HEAD);
+        const body = 1.6 * P.R * v.sc;
+        for (const pass of [0, 1]) {
+          gl.uniform1f(P_HEAD.u.uBody, body);
+          gl.uniform1f(P_HEAD.u.uWidth, pass === 0 ? Math.max(4 * dpr, body * 1.6) : Math.max(1.6 * dpr, body * 0.7));
+          gl.uniform1f(P_HEAD.u.uAlpha, pass === 0 ? 0.16 : 0.95);
+          gl.uniform1f(P_HEAD.u.uWhite, pass === 0 ? 0.0 : 0.5);
+          gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, nAg);
+        }
+      },
+    };
+    return api;
+  }
+  let GLR = null;
+  try { GLR = location.hash === "#2d" ? null : makeGL($("skygl")); } catch (e) { console.warn("WebGL2 renderer unavailable, using 2D canvas:", e.message); GLR = null; }
+
+  // ---------------- camera + drawing ----------------
+  let W = 0, H = 0, dpr = 1, bg = null;
+  function resize() {
+    const r = sky.getBoundingClientRect();
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = Math.max(1, Math.round(r.width * dpr)); H = Math.max(1, Math.round(r.height * dpr));
+    sky.width = W; sky.height = H;
+    if (GLR) GLR.resize(W, H);
+    bg = ctx.createRadialGradient(W * 0.45, H * 0.45, 0, W * 0.45, H * 0.45, Math.hypot(W, H) * 0.6);
+    bg.addColorStop(0, "#0d1428"); bg.addColorStop(1, "#05070d");
+  }
+  // Camera track: the largest (tracked) fragment, or the whole swarm (steadier when the flock is in pieces and the
+  // largest fragment keeps changing); "auto" chooses per run (fsm-core.js analyseRun).
+  let runAn = null;
+  function pickCam() {
+    if (!runAn) return;
+    const v = $("camera").value, swarm = v === "swarm" || (v === "auto" && !runAn.flockMostly);
+    cam = swarm ? runAn.swarmCam : runAn.cam;
+    if (!$("turn").checked) { cam = Float32Array.from(cam); for (let k = 3; k < cam.length; k += 4) cam[k] = 0; }  // world axes fixed on screen
+  }
+  const saveCam = () => { try { localStorage.setItem("fsm-camera2", $("camera").value + "," + ($("turn").checked ? 1 : 0)); } catch (e) { /* storage unavailable */ } };
+  $("camera").addEventListener("change", () => { pickCam(); saveCam(); });
+  $("turn").addEventListener("change", () => { pickCam(); saveCam(); });
+  try {
+    const [c, r] = (localStorage.getItem("fsm-camera2") || "").split(",");
+    if (c && [...$("camera").options].some((o) => o.value === c)) $("camera").value = c;
+    $("turn").checked = r === "1";
+  } catch (e) { /* storage unavailable */ }
+  function camAt(tt) {
+    const k = clamp(Math.floor(tt), 0, T - 1), k2 = Math.min(T - 1, k + 1), f = tt - k;
+    const c = (q) => cam[k * 4 + q] * (1 - f) + cam[k2 * 4 + q] * f;
+    return { x: c(0), y: c(1), r: Math.max(5, c(2)), a: c(3) };
+  }
+  function viewOf(tt) {
+    const c = camAt(tt);
+    const sc = ((0.6 * 0.5 * Math.min(W, H)) / c.r) * zoom;
+    const ca = Math.cos(-c.a), sa = Math.sin(-c.a);
+    const ox = W * 0.56, oy = H * 0.52;
+    return {
+      sc, ox, oy,
+      X: (x, y) => ox + (ca * (x - c.x) - sa * (y - c.y) - panU) * sc,
+      Y: (x, y) => oy - (sa * (x - c.x) + ca * (y - c.y) - panV) * sc,
+      rot: c.a,
+    };
+  }
+  function posAt(tt, j) {
+    const k = clamp(Math.floor(tt), 0, T - 1), k2 = Math.min(T - 1, k + 1), f = tt - k;
+    const a = k * N * 3 + 3 * j, b = k2 * N * 3 + 3 * j;
+    return [traj[a] * (1 - f) + traj[b] * f, traj[a + 1] * (1 - f) + traj[b + 1] * f, traj[b + 2]];
+  }
+  function bucketOf(k, j) {
+    if ($("colour").value === "speed") {
+      const m = k < T - 1 ? moves[k * N + j] : 3;
+      return m < 2 ? 1 : m - 2;
+    }
+    let d = traj[k * N * 3 + 3 * j + 2] - meanHead[k];
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    return clamp(Math.round(((d / 0.3) * 0.5 + 0.5) * (NB - 1)), 0, NB - 1);
+  }
+
+  let vx = new Float32Array(0), vy = new Float32Array(0);  // projected trail vertices, reused across frames
+  function draw() {
+    const v = viewOf(t);
+    const k = clamp(Math.floor(t), 0, T - 1);
+    const kc = Math.min(T - 1, k + 1);
+    const rampNow = $("colour").value === "speed" ? SPEED_RAMP : HEAD_RAMP;
+    const nb = rampNow.length;
+    const L = trailSteps();
+    const buckets = new Uint8Array(N);
+    for (let j = 0; j < N; j++) buckets[j] = bucketOf(kc, j);
+    ctx.globalCompositeOperation = "source-over";
+    if (GLR) {  // flock on the GPU; the 2D canvas above it only carries the overlay
+      GLR.frame(v, camAt(t), buckets, rampNow, L);
+      ctx.clearRect(0, 0, W, H);
+      drawGrid(v);
+    } else drawFlock2D(v, k, kc, rampNow, nb, L, buckets);
+    drawOverlay(v, k);
+    drawWorldRef(v, k);
+  }
+  // ---- world-fixed references (the camera follows and turns with the flock) ----
+  // screen pixel -> world point, the inverse of viewOf
+  function toWorld(v, c, px, py) {
+    const u = (px - v.ox) / v.sc + panU, w = -(py - v.oy) / v.sc + panV, ca = Math.cos(c.a), sa = Math.sin(c.a);
+    return [c.x + ca * u - sa * w, c.y + sa * u + ca * w];
+  }
+  // Faint world grid: two decades of spacing, the finer one fading out as the view widens.
+  let gridStep = 0;
+  function drawGrid(v) {
+    const c = camAt(t), corners = [[0, 0], [W, 0], [W, H], [0, H]].map(([x, y]) => toWorld(v, c, x, y));
+    const xs = corners.map((q) => q[0]), ys = corners.map((q) => q[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const span = Math.max(1e-6, Math.min(W, H) / v.sc), l = Math.log10(span / 12), s1 = Math.pow(10, Math.floor(l)), fr = l - Math.floor(l);
+    gridStep = fr < 0.6 ? s1 : 10 * s1;
+    ctx.lineWidth = Math.max(1, dpr);
+    for (const [step, alpha] of [[s1, 0.02 + 0.07 * (1 - fr)], [10 * s1, 0.13]]) {
+      if (alpha < 0.005 || (x1 - x0) / step > 400) continue;
+      ctx.strokeStyle = `rgba(150,175,230,${alpha.toFixed(3)})`;
+      ctx.beginPath();
+      for (let x = Math.ceil(x0 / step) * step; x <= x1; x += step) { ctx.moveTo(v.X(x, y0), v.Y(x, y0)); ctx.lineTo(v.X(x, y1), v.Y(x, y1)); }
+      for (let y = Math.ceil(y0 / step) * step; y <= y1; y += step) { ctx.moveTo(v.X(x0, y), v.Y(x0, y)); ctx.lineTo(v.X(x1, y), v.Y(x1, y)); }
+      ctx.stroke();
+    }
+  }
+  const fmtLen = (d) => (d >= 1000 ? (d / 1000).toFixed(d % 1000 ? 1 : 0) + "k" : String(+d.toPrecision(2)));
+  // Minimap (north up, the whole run): the swarm's path (bright up to now), the birds now, the main view's footprint
+  // with a notch on its top edge; compass needle: where world north points on screen.
+  const mini = $("minimap"), mctx2 = mini.getContext("2d"), comp = $("compass"), cctx = comp.getContext("2d");
+  let miniRun = -1, miniFit = null;
+  function drawWorldRef(v, k) {
+    if (!runAn || !runAn.swarmCam) return;
+    const S = mini.width, sc = runAn.swarmCam;
+    if (miniRun !== runId) {  // fit the whole path, with the swarm's spread as margin
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, rmax = 0;
+      for (let q = 0; q < T; q++) {
+        x0 = Math.min(x0, sc[4 * q]); x1 = Math.max(x1, sc[4 * q]); y0 = Math.min(y0, sc[4 * q + 1]); y1 = Math.max(y1, sc[4 * q + 1]);
+        rmax = Math.max(rmax, sc[4 * q + 2]);
+      }
+      const m = 1.15 * rmax, span = Math.max(x1 - x0, y1 - y0) + 2 * m;
+      miniFit = { cx: 0.5 * (x0 + x1), cy: 0.5 * (y0 + y1), k: (0.9 * S) / Math.max(1e-6, span) };
+      miniRun = runId;
+    }
+    const f = miniFit, MX = (x) => S / 2 + (x - f.cx) * f.k, MY = (y) => S / 2 - (y - f.cy) * f.k, c = mctx2;
+    c.clearRect(0, 0, S, S);
+    const path = (q0, q1) => { c.beginPath(); c.moveTo(MX(sc[4 * q0]), MY(sc[4 * q0 + 1])); for (let q = q0 + 1; q <= q1; q++) c.lineTo(MX(sc[4 * q]), MY(sc[4 * q + 1])); c.stroke(); };
+    c.lineWidth = 2; c.lineJoin = "round";
+    c.strokeStyle = "rgba(131,144,173,0.28)"; path(0, T - 1);
+    c.strokeStyle = "rgba(76,201,240,0.85)"; path(0, k);
+    // the birds now (a fixed sample)
+    const st = Math.max(1, Math.ceil(N / 1500)), o = k * N * 3;
+    c.fillStyle = "rgba(223,232,247,0.85)";
+    for (let j = 0; j < N; j += st) c.fillRect(MX(traj[o + 3 * j]) - 1, MY(traj[o + 3 * j + 1]) - 1, 2, 2);
+    // footprint of the main view
+    const cam0 = camAt(t), fp = [[0, 0], [W, 0], [W, H], [0, H]].map(([x, y]) => toWorld(v, cam0, x, y));
+    c.strokeStyle = "rgba(255,204,51,0.9)"; c.lineWidth = 2;
+    c.beginPath(); fp.forEach(([x, y], q) => (q ? c.lineTo(MX(x), MY(y)) : c.moveTo(MX(x), MY(y)))); c.closePath(); c.stroke();
+    const tm = [(fp[0][0] + fp[1][0]) / 2, (fp[0][1] + fp[1][1]) / 2];  // notch: the top edge of the screen
+    c.fillStyle = "rgba(255,204,51,0.9)"; c.beginPath(); c.arc(MX(tm[0]), MY(tm[1]), 4, 0, 2 * Math.PI); c.fill();
+    c.fillStyle = "rgba(223,232,247,0.7)"; c.font = "bold 20px system-ui, sans-serif"; c.textAlign = "center"; c.fillText("N", S / 2, 24);
+    c.beginPath(); c.moveTo(S / 2, 30); c.lineTo(S / 2 - 6, 42); c.lineTo(S / 2 + 6, 42); c.closePath(); c.fill();
+    // compass: world north on screen (world +y: screen direction (-sin(-a), -cos(-a)) in pixel axes)
+    const C = comp.width, a = cam0.a, nx = Math.sin(a), ny = -Math.cos(a);
+    cctx.clearRect(0, 0, C, C);
+    cctx.strokeStyle = "rgba(131,144,173,0.6)"; cctx.lineWidth = 2;
+    cctx.beginPath(); cctx.arc(C / 2, C / 2, C / 2 - 3, 0, 2 * Math.PI); cctx.stroke();
+    cctx.fillStyle = "#dfe8f7";
+    cctx.beginPath(); cctx.moveTo(C / 2 + nx * (C / 2 - 8), C / 2 + ny * (C / 2 - 8));
+    cctx.lineTo(C / 2 - ny * 6, C / 2 + nx * 6); cctx.lineTo(C / 2 + ny * 6, C / 2 - nx * 6); cctx.closePath(); cctx.fill();
+    cctx.fillStyle = "rgba(131,144,173,0.8)";
+    cctx.beginPath(); cctx.moveTo(C / 2 - nx * (C / 2 - 8), C / 2 - ny * (C / 2 - 8));
+    cctx.lineTo(C / 2 - ny * 6, C / 2 + nx * 6); cctx.lineTo(C / 2 + ny * 6, C / 2 - nx * 6); cctx.closePath(); cctx.fill();
+    const turning = $("turn").checked;  // with the axes fixed, north is always up: no compass
+    comp.style.display = turning ? "block" : "none";
+    $("gridlabel").textContent = gridStep ? "grid " + fmtLen(gridStep) + (turning ? " · N" : "") : "";
+  }
+  function drawFlock2D(v, k, kc, rampNow, nb, L, buckets) {
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    drawGrid(v);
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    // Trails: vertex 0 is the current (interpolated) position, vertex q >= 1 the saved step floor(t) - q + 1,
+    // clipped at t - L. Split by age into bands, batched by colour.
+    const BANDS = 5;
+    if (L > 0) {
+      const t0 = Math.max(0, t - L), kmin = Math.max(0, Math.ceil(t0)), nv = Math.max(0, k - kmin + 1) + 2;
+      if (vx.length < nv * N) { vx = new Float32Array(nv * N); vy = new Float32Array(nv * N); }
+      const ca = Math.cos(-camAt(t).a), sa = Math.sin(-camAt(t).a), c = camAt(t);
+      const proj = (q, x, y, j) => {
+        const dx = x - c.x, dy = y - c.y;
+        vx[q * N + j] = v.ox + (ca * dx - sa * dy - panU) * v.sc;
+        vy[q * N + j] = v.oy - (sa * dx + ca * dy - panV) * v.sc;
+      };
+      const f = t - k, o0 = k * N * 3, o1 = Math.min(T - 1, k + 1) * N * 3;
+      for (let j = 0; j < N; j++) {
+        proj(0, traj[o0 + 3 * j] * (1 - f) + traj[o1 + 3 * j] * f, traj[o0 + 3 * j + 1] * (1 - f) + traj[o1 + 3 * j + 1] * f, j);
+        for (let q = 1, kk = k; kk >= kmin; q++, kk--) proj(q, traj[kk * N * 3 + 3 * j], traj[kk * N * 3 + 3 * j + 1], j);
+      }
+      // time of vertex q: q = 0 -> t, q >= 1 -> k - q + 1
+      const tv = (q) => (q === 0 ? t : k - q + 1);
+      const nq = k - kmin + 2;  // vertices 0 .. nq-1
+      ctx.lineWidth = Math.max(0.8, 0.5 * dpr);
+      for (let band = 0; band < BANDS; band++) {
+        const s0 = (L * band) / BANDS, s1 = (L * (band + 1)) / BANDS;
+        const ta = Math.max(0, t - s1), tb = Math.max(0, t - s0);
+        if (tb <= ta) continue;
+        // vertices with time in [ta, tb], plus the neighbours that straddle the band edges
+        let qa = nq - 1, qb = 0;
+        for (let q = 0; q < nq; q++) { const tt = tv(q); if (tt <= tb && q < qa + 1) { qb = q; break; } }
+        for (let q = nq - 1; q >= 0; q--) { if (tv(q) >= ta) { qa = q; break; } }
+        const qs = Math.max(0, qb - (tv(qb) < tb ? 1 : 0)), qe = Math.min(nq - 1, qa + (tv(qa) > ta ? 1 : 0));
+        if (qe <= qs) continue;
+        const alpha = 0.5 * Math.pow(1 - band / BANDS, 1.6);
+        for (let cb = 0; cb < nb; cb++) {
+          ctx.beginPath();
+          let any = false;
+          for (let j = 0; j < N; j++) {
+            if (buckets[j] !== cb) continue;
+            ctx.moveTo(vx[qs * N + j], vy[qs * N + j]);
+            for (let q = qs + 1; q <= qe; q++) ctx.lineTo(vx[q * N + j], vy[q * N + j]);
+            any = true;
+          }
+          if (any) { const rgb = rampNow[cb]; ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`; ctx.stroke(); }
+        }
+      }
+    }
+    // Heads: glow pass + core pass.
+    const body = 1.6 * P.R * v.sc;
+    for (const pass of [0, 1]) {
+      ctx.lineWidth = pass === 0 ? Math.max(4 * dpr, body * 1.6) : Math.max(1.6 * dpr, body * 0.7);
+      for (let c = 0; c < nb; c++) {
+        ctx.beginPath();
+        let any = false;
+        for (let j = 0; j < N; j++) {
+          if (buckets[j] !== c) continue;
+          const f = t - k, a0 = k * N * 3 + 3 * j, a1 = kc * N * 3 + 3 * j;
+          const px = traj[a0] * (1 - f) + traj[a1] * f, py = traj[a0 + 1] * (1 - f) + traj[a1 + 1] * f;
+          const X = v.X(px, py), Y = v.Y(px, py);
+          const a = traj[a1 + 2] - v.rot, dx = Math.cos(a) * body, dy = -Math.sin(a) * body;
+          ctx.moveTo(X - dx, Y - dy); ctx.lineTo(X + dx * 0.6, Y + dy * 0.6);
+          any = true;
+        }
+        if (!any) continue;
+        const rgb = rampNow[c];
+        ctx.strokeStyle = pass === 0 ? `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.16)` : `rgba(${(rgb[0] + 255) >> 1},${(rgb[1] + 255) >> 1},${(rgb[2] + 255) >> 1},0.95)`;
+        ctx.stroke();
+      }
+    }
+  }
+  function drawOverlay(v, k) {
+    // Selected bird: its futures (when paused and computed) and a marker ring; only once a bird has been clicked or
+    // the Bird view is on.
+    ctx.globalCompositeOperation = "source-over";
+    if (!picked && !panelOn) return;
+    const d = decision;
+    if (!playing && d && d.agent === selected && d.step === k) {
+      const mv = k < T - 1 ? moves[k * N + selected] : -1;
+      for (let n = 1; n < d.px.length; n++) {
+        const b = d.bits[n];
+        if (!(b & (1 << mv))) continue;
+        ctx.fillStyle = BRANCH[mv].col + "99";
+        const X = v.X(d.px[n], d.py[n]), Y = v.Y(d.px[n], d.py[n]);
+        ctx.fillRect(X - dpr * 0.8, Y - dpr * 0.8, dpr * 1.6, dpr * 1.6);
+      }
+    }
+    const sp = posAt(t, selected);
+    const sx = v.X(sp[0], sp[1]), sy = v.Y(sp[0], sp[1]);
+    ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = 1.5 * dpr;
+    ctx.beginPath(); ctx.arc(sx, sy, Math.max(9 * dpr, 4 * P.R * v.sc), 0, Math.PI * 2); ctx.stroke();
+  }
+
+  // The bird's-eye panel: agent-centred, heading to the right.
+  function drawMind() {
+    const m0 = performance.now();
+    drawMindInner();
+    stats.mindMs = performance.now() - m0;
+  }
+  function drawMindInner() {
+    const S = mind.width, c = mctx;
+    c.clearRect(0, 0, S, S);
+    c.fillStyle = "#0b1020"; c.fillRect(0, 0, S, S);
+    const d = decision;
+    const k = d ? d.step : clamp(Math.floor(t), 0, T - 1);
+    $("who").innerHTML = `Bird ${selected} <span>t = ${k}</span>`;
+    if (!d || d.agent !== selected) { renderScores(null); return; }
+    const o = k * N * 3 + 3 * selected, mx = traj[o], my = traj[o + 1], mth = traj[o + 2];
+    const ca = Math.cos(-mth), sa = Math.sin(-mth);
+    const reach = 1.08 * (P.v0 + P.dv) * P.dt * P.tau;
+    const r1 = 0.36 * S, sc = r1 / reach, cx = S / 2, cy = S / 2;
+    const toX = (x, y) => cx + (ca * (x - mx) - sa * (y - my)) * sc;
+    const toY = (x, y) => cy - (sa * (x - mx) + ca * (y - my)) * sc;
+    const chosen = k < T - 1 ? moves[k * N + selected] : 3;
+    const mv = shownBranch === null ? chosen : shownBranch;
+    // neighbours inside the ring
+    c.fillStyle = "rgba(150,162,190,0.45)";
+    const rad = Math.max(2, P.R * sc);
+    c.beginPath();
+    for (let j = 0; j < N; j++) {
+      if (j === selected) continue;
+      const X = toX(traj[k * N * 3 + 3 * j], traj[k * N * 3 + 3 * j + 1]), Y = toY(traj[k * N * 3 + 3 * j], traj[k * N * 3 + 3 * j + 1]);
+      if (Math.hypot(X - cx, Y - cy) > 0.95 * r1) continue;
+      c.moveTo(X + rad, Y); c.arc(X, Y, rad, 0, Math.PI * 2);
+    }
+    c.fill();
+    // futures: other branches first, the shown branch on top (collision-pruned futures are not drawn)
+    const nn = d.px.length;
+    const order = [0, 1, 2, 3, 4].filter((b) => b !== mv).concat([mv]);
+    for (const b of order) {  // one batched path per branch (tens of thousands of futures at large tau)
+      const on = b === mv;
+      c.fillStyle = BRANCH[b].col + (on ? "ee" : "44");
+      c.beginPath();
+      for (let n = 1; n < nn; n++) {
+        if (!(d.bits[n] & (1 << b))) continue;
+        const r = (on ? 2.2 : 1.3) * (0.6 + (0.4 * d.level[n]) / P.tau);
+        c.rect(toX(d.px[n], d.py[n]) - r, toY(d.px[n], d.py[n]) - r, 2 * r, 2 * r);
+      }
+      c.fill();
+    }
+    // the bird
+    c.fillStyle = "#ffffff"; c.beginPath(); c.arc(cx, cy, Math.max(3, rad), 0, Math.PI * 2); c.fill();
+    c.strokeStyle = "#ffffff"; c.lineWidth = 2; c.beginPath(); c.moveTo(cx, cy); c.lineTo(cx + Math.max(10, 3 * rad), cy); c.stroke();
+    // inner ring: current visual field
+    c.strokeStyle = "rgba(75,86,115,0.9)"; c.lineWidth = 1;
+    c.beginPath(); c.arc(cx, cy, r1, 0, Math.PI * 2); c.stroke();
+    c.strokeStyle = "rgba(235,242,255,0.95)"; c.lineWidth = 3;
+    for (const [a, b] of d.vis) { c.beginPath(); c.arc(cx, cy, r1, -b, -a); c.stroke(); }
+    // outer ring: p(1-p) of the chosen branch
+    const B = d.bins || 360, pOff = mv * B;
+    const r2a = 0.39 * S, r2b = 0.47 * S;
+    const rgb = hex(BRANCH[mv].col);
+    for (let q = 0; q < B; q++) {
+      const pp = d.p[pOff + q], h = 4 * pp * (1 - pp);
+      if (h <= 0.01) continue;
+      const a0 = (2 * Math.PI * q) / B, a1 = (2 * Math.PI * (q + 1)) / B, rr = r2a + (r2b - r2a) * h;
+      c.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.25 + 0.6 * h})`;
+      c.beginPath(); c.arc(cx, cy, rr, -a1, -a0); c.arc(cx, cy, r2a, -a0, -a1, true); c.closePath(); c.fill();
+    }
+    c.fillStyle = "#4b5673"; c.font = `${Math.round(S / 40)}px "IBM Plex Mono", monospace`;
+    c.fillText("ahead →", cx + r2b - S * 0.02, cy - S * 0.015);
+    renderScores(d, chosen, mv);
+    setStatus(Math.floor(t));
+  }
+
+  function renderScores(d, mv, shown) {
+    const el = $("scores");
+    if (!d) { el.innerHTML = ""; return; }
+    const s = Array.from(d.score);
+    const valid = s.filter((x) => x >= 0);
+    const hi = valid.length ? Math.max(...valid) : 1, lo = valid.length ? Math.min(...valid) * 0.9 : 0;
+    el.innerHTML = s.map((x, b) => {
+      const on = b === mv;
+      const sh = b === shown;
+      const w = x < 0 ? 0 : 8 + (92 * (x - lo)) / Math.max(1e-9, hi - lo);
+      const val = x < 0 ? '<span style="color:var(--pruned)">collides</span>' : x.toFixed(2);
+      return `<button type="button" class="row${sh ? " shown" : ""}" data-b="${b}" aria-pressed="${sh}" ` +
+        `aria-label="Show the ring for ${BRANCH[b].name}${on ? " (chosen)" : ""}">` +
+        `<span class="lbl${on ? " on" : ""}">${BRANCH[b].name}</span>` +
+        `<span class="bar"><i style="width:${w}%;background:${BRANCH[b].col};opacity:${on || sh ? 1 : 0.4}"></i></span>` +
+        `<span class="val${on ? " on" : ""}">${on ? "chosen " : ""}${val}</span></button>`;
+    }).join("");
+  }
+
+  function updateHud() {
+    const k = clamp(Math.floor(t), 0, T - 1);
+    $("time").value = k;
+    $("clock").innerHTML = `t <b>${k * every}</b> / ${(T - 1) * every} &nbsp; order <b>${meta.order[k].toFixed(3)}</b>` +
+      (meta.fragments[k] > 1 ? ` &nbsp; fragments <b>${meta.fragments[k]}</b>` : "");
+  }
+
+  let lastStep = -1;
+  function tick(ts) {
+    if (playing) {
+      if (lastTs !== null) t += ((ts - lastTs) / 1000) * SPEEDS[speedIx];
+      if (t >= T - 1) { t = T - 1; setPlaying(false); }
+    }
+    lastTs = ts;
+    const k = clamp(Math.floor(t), 0, T - 1);
+    if (k !== lastStep) { lastStep = k; updateHud(); request(k, selected); }
+    const d0 = performance.now();
+    draw();
+    stats.drawMs = 0.9 * stats.drawMs + 0.1 * (performance.now() - d0);
+    requestAnimationFrame(tick);
+  }
+  function setPlaying(on) {
+    if (on && t >= T - 1) t = 0;  // play at the end: start again
+    playing = on;
+    $("play").textContent = on ? "Pause" : "Play";
+    $("play").setAttribute("aria-label", on ? "Pause" : "Play");
+    if (!on) request(clamp(Math.floor(t), 0, T - 1), selected);
+  }
+  // Scripting hook (headless frame-by-frame movie capture): seek to a fractional time and draw synchronously; view
+  // sets the user zoom and pan (camera frame, world units); set picks the camera track, turning, trail and colour.
+  window.FSM2D = {
+    seek(tf) { if (playing) setPlaying(false); t = clamp(tf, 0, T - 1); lastStep = clamp(Math.floor(t), 0, T - 1); updateHud(); draw(); return lastStep; },
+    view(z, u, v) { if (z !== undefined) zoom = z; if (u !== undefined) panU = u; if (v !== undefined) panV = v; $("zoomval").textContent = (zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)) + "×"; },
+    set(o) {
+      if (o.camera !== undefined) $("camera").value = o.camera;
+      if (o.turn !== undefined) $("turn").checked = o.turn;
+      if (o.trail !== undefined) $("trail").value = TRAILS.indexOf(o.trail);
+      if (o.colour !== undefined) $("colour").value = o.colour;
+      pickCam();
+    },
+    cam(tf) { return camAt(tf); },
+    pos(tf, j) { return posAt(tf, j); },
+    get info() { return { T, N, t, every, ready: !!runAn, order: meta && meta.order, fragments: meta && meta.fragments }; },
+  };
+
+  // ---------------- interaction ----------------
+  const stepBy = (dk) => {
+    setPlaying(false);
+    t = dk > 0 ? Math.min(T - 1, Math.floor(t) + dk) : Math.max(0, Math.ceil(t) + dk);
+  };
+  // Trail length in simulation steps: a slider over roughly log-spaced lengths, 0 (none) to 500 (most of a run).
+  const TRAILS = [0, 1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 75, 100, 150, 200, 300, 500];
+  const trailSteps = () => TRAILS[+$("trail").value];
+  try { const sv = localStorage.getItem("fsm-trail-steps"); if (sv !== null && TRAILS.includes(+sv)) $("trail").value = TRAILS.indexOf(+sv); } catch (e) { /* storage unavailable */ }
+  const showTrail = () => {
+    const L = trailSteps();
+    $("trailval").textContent = L === 0 ? "off" : L + (L === 1 ? " step" : " steps");
+    try { localStorage.setItem("fsm-trail-steps", String(L)); } catch (e) { /* storage unavailable */ }
+  };
+  $("trail").addEventListener("input", showTrail);
+  showTrail();
+  // Playback speed (simulation steps per second), remembered per browser.
+  const SPEEDS = [0.5, 1, 2, 4, 10, 20, 40, 80, 160];
+  let speedIx = 4;
+  try { const sv = localStorage.getItem("fsm-speed"); if (sv !== null && SPEEDS.includes(+sv)) speedIx = SPEEDS.indexOf(+sv); } catch (e) { /* storage unavailable */ }
+  function setSpeed(ix) {
+    speedIx = clamp(ix, 0, SPEEDS.length - 1);
+    $("speedval").textContent = SPEEDS[speedIx] + " steps/s";
+    $("slower").disabled = speedIx === 0; $("faster").disabled = speedIx === SPEEDS.length - 1;
+    try { localStorage.setItem("fsm-speed", String(SPEEDS[speedIx])); } catch (e) { /* storage unavailable */ }
+  }
+  setSpeed(speedIx);
+  $("slower").addEventListener("click", () => setSpeed(speedIx - 1));
+  $("faster").addEventListener("click", () => setSpeed(speedIx + 1));
+  $("play").addEventListener("click", () => setPlaying(!playing));
+  $("prev").addEventListener("click", () => stepBy(-1));
+  $("next").addEventListener("click", () => stepBy(1));
+  $("time").addEventListener("input", (e) => { t = +e.target.value; });
+  $("colour").addEventListener("change", () => {});
+  window.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+    if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
+    else if (e.key === "+" || e.key === "=") zoomAt(1.5, W * 0.56, H * 0.52);
+    else if (e.key === "-") zoomAt(1 / 1.5, W * 0.56, H * 0.52);
+    else if (e.key === "ArrowRight") stepBy(e.shiftKey ? 10 : 1);
+    else if (e.key === "ArrowLeft") stepBy(e.shiftKey ? -10 : -1);
+    else if (e.key === "[") setSpeed(speedIx - 1);
+    else if (e.key === "]") setSpeed(speedIx + 1);
+  });
+  function selectAt(e) {
+    const r = sky.getBoundingClientRect();
+    const px = (e.clientX - r.left) * dpr, py = (e.clientY - r.top) * dpr;
+    const v = viewOf(t);
+    let best = -1, bd = 24 * dpr;
+    for (let j = 0; j < N; j++) {
+      const p = posAt(t, j), dd = Math.hypot(v.X(p[0], p[1]) - px, v.Y(p[0], p[1]) - py);
+      if (dd < bd) { bd = dd; best = j; }
+    }
+    if (best >= 0 && (best !== selected || !picked)) {
+      if (best !== selected) { decision = null; shownBranch = null; }
+      selected = best; picked = true; drawMind();
+      if (!panelOn) setPanel(true);
+      request(clamp(Math.floor(t), 0, T - 1), selected);
+    } else if (best < 0 && !panelOn) picked = false;  // click on empty sky clears the highlight
+  }
+  // Drag to pan; a press that barely moves is a click (select a bird).
+  let drag = null;
+  sky.addEventListener("pointerdown", (e) => {
+    drag = { x: e.clientX, y: e.clientY, u: panU, v: panV, moved: false };
+    sky.setPointerCapture(e.pointerId);
+  });
+  sky.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) > 4) { drag.moved = true; sky.classList.add("dragging"); }
+    if (drag.moved) {
+      const sc = viewOf(t).sc / dpr;
+      panU = drag.u - dx / sc; panV = drag.v + dy / sc;
+    }
+  });
+  const endDrag = (e) => {
+    if (!drag) return;
+    if (!drag.moved && e.type === "pointerup") selectAt(e);
+    drag = null; sky.classList.remove("dragging");
+  };
+  sky.addEventListener("pointerup", endDrag);
+  sky.addEventListener("pointercancel", endDrag);
+  // Zoom keeping the point under (px, py) fixed; px/py in canvas pixels.
+  function zoomAt(factor, px, py) {
+    const v = viewOf(t);
+    const nz = clamp(zoom * factor, 0.2, 40);
+    const uc = (px - v.ox) / v.sc + panU, vc = -(py - v.oy) / v.sc + panV;
+    const nsc = (v.sc / zoom) * nz;
+    panU = uc - (px - v.ox) / nsc; panV = vc + (py - v.oy) / nsc;
+    zoom = nz;
+    $("zoomval").textContent = (zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)) + "×";
+  }
+  sky.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const r = sky.getBoundingClientRect();
+    const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    zoomAt(Math.exp(-d * 0.0015), (e.clientX - r.left) * dpr, (e.clientY - r.top) * dpr);
+  }, { passive: false });
+  $("zoomin").addEventListener("click", () => zoomAt(1.5, W * 0.56, H * 0.52));
+  $("zoomout").addEventListener("click", () => zoomAt(1 / 1.5, W * 0.56, H * 0.52));
+  $("zoomfit").addEventListener("click", () => { zoom = 1; panU = panV = 0; $("zoomval").textContent = "1.0×"; });
+  function setPanel(on) {
+    panelOn = on;
+    $("app").classList.toggle("nopanel", !on);
+    $("birdview").setAttribute("aria-pressed", String(on));
+    try { localStorage.setItem("fsm-panel", on ? "on" : "off"); } catch (e) { /* storage unavailable */ }
+    resize();
+    if (on) { drawMind(); request(clamp(Math.floor(t), 0, T - 1), selected); }
+  }
+  $("birdview").addEventListener("click", () => setPanel(!panelOn));
+  $("hidepanel").addEventListener("click", () => setPanel(false));
+  $("scores").addEventListener("click", (e) => {
+    const row = e.target.closest(".row");
+    if (!row) return;
+    const b = +row.dataset.b;
+    const chosen = decision && decision.step < T - 1 ? moves[decision.step * N + selected] : null;
+    shownBranch = b === chosen ? null : b;
+    drawMind();
+  });
+  window.addEventListener("resize", resize);
+
+  // ---------------- runs ----------------
+  const EXPLAIN = "Each step, every bird imagines all its move sequences τ steps ahead, assuming the others fly straight on. The <b>outer ring</b> is drawn for one first move (the chosen one unless you click another). Take all the futures that start with that move. For each direction around the bird, p is the share of those futures in which a neighbour fills that direction. The ring's thickness is 4p(1−p): zero where every future agrees (always empty or always blocked), fullest where it's a coin flip. The area of the ring is the move's score W, and the bird picks the move with the most.";
+  // run: { name, params, T, N, traj Float32Array [T*N*3], moves Uint8Array [(T-1)*N] }
+  function setRun(run) {
+    runId++;
+    P = run.params; T = run.T; N = run.N; traj = run.traj; moves = run.moves;
+    const a = run.analysis || FSMCore.analyseRun(traj, T, N);  // precomputed for bundled runs (scripts/build_viewer.py)
+    if (GLR) { try { GLR.upload(traj, T, N); } catch (e) { console.warn("WebGL upload failed, using 2D canvas:", e.message); GLR = null; } }
+    runAn = a; pickCam(); meanHead = a.meanHead;
+    meta = { order: a.order, fragments: a.fragments };
+    selected = a.focal; picked = false; decision = null; shownBranch = null; cache.clear(); pending = null;
+    zoom = 1; panU = panV = 0; $("zoomval").textContent = "1.0×";
+    job = null; busy = false;
+    fastTpl = FSMCore.buildFastTemplate(P);
+    for (const wk of workers) wk.postMessage({ type: "init", params: P });
+    $("runline").innerHTML = `<span>N <b>${N}</b></span><span>τ <b>${P.tau}</b></span>` +
+      `<span>Δθ <b>${P.dtheta_deg}°</b></span><span>v₀ <b>${P.v0}</b> ± <b>${P.dv}</b></span><span><b>${(T - 1) * every}</b> steps${every > 1 ? ` (every ${every}th)` : ""}</span>` +
+      (P.noise ? `<span>noise <b>${P.noise}</b></span>` : "");
+    $("explain").innerHTML = EXPLAIN;
+    $("scorehead").textContent = "Branch score W, by first move · click one to show its ring";
+    $("time").max = T - 1;
+    t = 0;  // every run opens at its first frame
+    lastStep = -1;
+    setPlaying(false);
+    drawMind();
+  }
+  async function loadBundled(id) {
+    $("loading").hidden = false; $("loading").textContent = "loading " + id + "…";
+    // Usually the initial state and the moves: the trajectory is re-integrated. Runs with motor noise ship their
+    // positions (r.traj) instead.
+    const r = await FSMData.load(id), m = r.meta;
+    const st = r.traj ? 1 : m.stride || 1, TK = Math.ceil(m.T / st);  // stride: keep one frame in st (very large runs)
+    every = st;
+    const traj = r.traj || FSMCore.replay2d(m.params, r.init, r.moves, m.T, m.N, st);
+    setRun({ name: id, params: m.params, T: TK, N: m.N, traj, moves: FSMCore.strideMoves(r.moves, m.T, m.N, st),
+             analysis: r.analysis && FSMCore.unpackAnalysis(r.analysis, TK) });
+    $("loading").hidden = true;
+  }
+  // Files written by a simulator: PREFIX.json (params), PREFIX.traj (float64 x, y, theta, v), PREFIX.moves (int8).
+  async function loadFiles(list) {
+    const files = Array.from(list);
+    const by = (ext) => files.find((f) => f.name.endsWith(ext) && !f.name.endsWith(".inspect.json"));
+    const fj = by(".json"), ft = by(".traj"), fm = by(".moves");
+    if (!fj || !ft) { $("loading").hidden = false; $("loading").textContent = "Choose at least PREFIX.json and PREFIX.traj (PREFIX.moves is optional)."; setTimeout(() => { $("loading").hidden = true; }, 4000); return; }
+    $("loading").hidden = false; $("loading").textContent = "reading " + ft.name + "…";
+    const params = JSON.parse(await fj.text());
+    const N = params.N, raw = new Float64Array((await ft.arrayBuffer()).slice(0, Math.floor(ft.size / 8) * 8));
+    const T = Math.floor(raw.length / (4 * N));
+    if (T < 2) throw new Error(ft.name + " holds fewer than 2 frames for N = " + N);
+    const tr = new Float32Array(T * N * 3);
+    for (let q = 0; q < T * N; q++) { tr[3 * q] = raw[4 * q]; tr[3 * q + 1] = raw[4 * q + 1]; tr[3 * q + 2] = raw[4 * q + 2]; }
+    const mv = new Uint8Array((T - 1) * N).fill(3);
+    if (fm) { const b = new Uint8Array(await fm.arrayBuffer()); mv.set(b.subarray(0, Math.min(b.length, mv.length))); }
+    const name = ft.name.replace(/\.traj$/, "");
+    const opt = document.createElement("option");
+    opt.value = "local:" + name; opt.textContent = name + " (local file)";
+    $("run").appendChild(opt); $("run").value = opt.value;
+    const run = { name, params, T, N, traj: tr, moves: mv };
+    localRuns.set(opt.value, run);
+    every = 1;
+    setRun(run);
+    $("loading").hidden = true;
+  }
+  const fail = (err) => { $("loading").hidden = false; $("loading").textContent = "Could not load the run: " + err.message; };
+  $("files").addEventListener("change", (e) => { if (e.target.files.length) loadFiles(e.target.files).catch(fail); e.target.value = ""; });
+  const stage = document.querySelector(".stage");
+  let dragDepth = 0;
+  stage.addEventListener("dragenter", (e) => { e.preventDefault(); dragDepth++; $("drop").hidden = false; });
+  stage.addEventListener("dragover", (e) => e.preventDefault());
+  stage.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("drop").hidden = true; } });
+  stage.addEventListener("drop", (e) => { e.preventDefault(); dragDepth = 0; $("drop").hidden = true; if (e.dataTransfer.files.length) loadFiles(e.dataTransfer.files).catch(fail); });
+  const localRuns = new Map();
+  $("run").addEventListener("change", (e) => {
+    const v = e.target.value;
+    if (v.startsWith("local:")) { if (localRuns.has(v)) setRun(localRuns.get(v)); return; }
+    try { localStorage.setItem("fsm-run", v); } catch (err) { /* storage unavailable */ }
+    if (v.startsWith("3d:")) { location.href = "3d.html?run=" + encodeURIComponent(v.slice(3)); return; }  // the 3D viewer
+    loadBundled(v).catch(fail);
+  });
+
+  async function load() {
+    startWorker();
+    const all = FSMData.runs(), runs = all.filter((r) => r.dims !== 3), runs3 = all.filter((r) => r.dims === 3);
+    const group = (label, list, prefix) => {
+      const g = document.createElement("optgroup");
+      g.label = label;
+      for (const r of list) {
+        const o = document.createElement("option");
+        o.value = prefix + r.id; o.textContent = r.label;
+        g.appendChild(o);
+      }
+      $("run").appendChild(g);
+    };
+    if (runs.length) group("2D", runs, "");
+    if (runs3.length) group("3D (opens the 3D viewer)", runs3, "3d:");
+    $("app").classList.toggle("nopanel", !panelOn);
+    $("birdview").setAttribute("aria-pressed", String(panelOn));
+    resize();
+    if (!runs.length) {
+      $("loading").textContent = "No 2D runs are bundled with this viewer. Open a run's files (PREFIX.json, .traj, .moves), " +
+        "or build a bundle with scripts/build_viewer.py.";
+      requestAnimationFrame(tick);
+      return;
+    }
+    let first = runs[0].id;
+    try { const s = localStorage.getItem("fsm-run"); if (s && runs.some((r) => r.id === s)) first = s; } catch (err) { /* storage unavailable */ }
+    const asked = new URLSearchParams(location.search).get("run");
+    if (asked && runs.some((r) => r.id === asked)) first = asked;
+    $("run").value = first;
+    await loadBundled(first);
+    requestAnimationFrame(tick);
+  }
+  load().catch(fail);
+})();
+</script>
