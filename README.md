@@ -1,25 +1,91 @@
-# Code for "Intrinsically Motivated Collective Motion"
-Update: paper has now been published in PNAS: https://www.pnas.org/content/early/2019/07/15/1822069116. Note that the code here is only for the discrete sensor version of the model, using the ballistic heuristic for the future trajectories of the other agents.
+# Intrinsically motivated collective motion
 
-This is example code for the collective motion model I've been working on during my PhD. Running it as it is will run using the default parameters for 1000 timesteps.
+Simulation code for Charlesworth & Turner, *Intrinsically motivated collective motion*, PNAS 116, 15362 (2019)
+([doi:10.1073/pnas.1822069116](https://doi.org/10.1073/pnas.1822069116)), rewritten in 2026 for large flocks, long
+horizons and 3D.
 
-## Example Results (click images below to watch video):
-<a href="http://www.henrycharlesworth.com/fileStorage/N=50_treeSearch.mp4"><img src="http://www.henrycharlesworth.com/fileStorage/typicalResult.png" width="400"/></a>
-<a href="https://www.henrycharlesworth.com/fileStorage/largeContinuousFlock.mp4"><img src="https://www.henrycharlesworth.com/fileStorage/largerFlockThumbnail.png" width="400"/></a>
+Each agent ("bird") looks τ steps ahead: it imagines every sequence of moves it could make, assumes the others fly
+straight on, discards the futures that collide, and takes the first move whose surviving futures have the most
+varied visual states. This is Future State Maximisation (FSM); flocking emerges from it alone.
 
-## Visualizing the Model:
-I made some apps in D3.js to help understand what's going on.
-### Visual State Definition (click image below to open app):
-Each agent (or "bird") has a visual state which is defined in terms of the <i>projection</i> of the other birds onto its angular field of view. This is then divided up into a discrete number if sensors which read either a 1 or a 0 depending on whether or not they are more than half filled.
+| | |
+|---|---|
+| `src/fsm2d/` | 2D simulator: exact CPU version (`bin/fsm2d`, OpenMP) and CUDA version (`bin/fsm2d_gpu`) |
+| `src/fsm3d/` | 3D simulator, CUDA (`bin/fsm3d_gpu`), with optional predators |
+| `src/common/` | Command line, random streams, run files and resume, shared by the simulators |
+| `python/fsmtools/` | Loading runs, flock measures, brute-force reference models (2D and 3D), viewer export |
+| `scripts/` | Parameter sweeps on many GPUs, run summaries, the empowerment check, viewer bundles |
+| `viewer/` | Standalone browser viewer (2D and 3D), and a tool that renders videos from it |
+| `tests/` | Test suite: exactness, GPU against CPU and reference, reproducibility |
+| [`docs/NOTES.md`](docs/NOTES.md) | The model, the derivation of the score and its link to empowerment, 3D, and results |
+| [`docs/OPTIMIZATIONS.md`](docs/OPTIMIZATIONS.md) | How the code is made fast, from the original implementation to multi-GPU |
 
-<a href="https://henrycharlesworth.com/IntrinsicallyMotivatedCollectiveMotion/Visualizations/visState.html"><img src="https://www.henrycharlesworth.com/fileStorage/visStatePreview.png" width="500" /> </a>
-### Future State Maximization (click image below to open app):
-Each bird has five decisions available to it at each time step. It can continue to move in its current direction at v0, v0+dv or v0-dv, or it can move at v0 but change its orientation by +/- dTheta. To make this decision the agent models a <i>tree of possible futures</i> for each move that it currently has available to it whilst (by default) modelling the other agents as moving in a straight line (although we also experiment with different future models). Each of these leads to a branch of different possible future states that each has a visual state (a vector of 1s and 0s) associated with it and the agent chooses the move which leads to the <i>largest number of unique future visual states</i>. Each agent chooses how to update itself in exactly the same way.
+## Build
 
-<a href="https://henrycharlesworth.com/IntrinsicallyMotivatedCollectiveMotion/Visualizations/treeSearch.html"><img src="https://www.henrycharlesworth.com/fileStorage/treeSearchPreview.png" width="650" /> </a>
+```sh
+make                          # bin/fsm2d: needs a C++17 compiler with OpenMP (g++ or clang)
+make gpu CUDA_ARCH=sm_89      # bin/fsm2d_gpu, bin/fsm3d_gpu: needs the CUDA toolkit; sm_89 = RTX 40xx / L4,
+                              #   sm_90 = H100, sm_120 = RTX 50xx / RTX PRO 6000 (default)
+pip install -r requirements.txt && pip install -e .   # fsmtools (python/) and the tools' dependencies
+make test                     # builds what it can and runs tests/ (the GPU tests skip without a GPU)
+```
 
-## Training a Neural Network to Mimic This Model
-The full model requires modelling a large number of future trajectories for each bird at each timestep. This is clearly very computationally intense (especially the further into the future we look) and not at all realistic for a biological organism. As such, we decided to see if it would be possible to train a neural network to give qualitatively similar results to the full model but using only the <i>current visual state</i> (and it turns out to be necessary to include the previous state too). We do this by running the full model and recording the visual states when each decision is made, as well as recording each decision and using this as a target for the neural network to fit. A comparison with the full model is shown below:
-<a href="https://www.henrycharlesworth.com/fileStorage/sideBySide_fullAndDeepHeuristic2.mp4"> <img src="https://www.henrycharlesworth.com/fileStorage/heuristicvsfull.png" width="800" /> </a>
+3D runs need an NVIDIA GPU; on a CPU, `python -m fsmtools.reference3d simulate --N 60 --tau 3` runs tiny 3D flocks
+(the brute-force reference: N ≲ 100, τ ≤ 3).
 
-and we see it works very nicely (albeit not quite perfectly)!
+## Run
+
+```sh
+# 2D, N = 500 birds, lookahead tau = 6, 1000 steps from a random start in a 250 x 250 box
+bin/fsm2d     --N 500 --tau 6 --box 250 --steps 1000 --out runs/n500_t6        # CPU, exact (~1 s/step on 24 cores)
+bin/fsm2d_gpu --N 500 --tau 6 --box 250 --steps 1000 --out runs/n500_t6        # GPU (~20 ms/step)
+
+# 3D, N = 1000, tau = 6, on a 192 x 96 visual-field grid, merging futures within 1.5 of each other
+bin/fsm3d_gpu --N 1000 --tau 6 --box 110 --grid 192x96 --merge 1.5 --steps 2000 --out runs/n1000_t6_3d
+# ... with two predators (one from behind, one diving from above), from step 100
+bin/fsm3d_gpu --N 1000 --tau 6 --box 110 --grid 192x96 --merge 1.5 --steps 500 --out runs/pred \
+    --predator com --pred-start 100 --pred-dist 150 --pred-speed 20 --pred-grow 4 --pred2 intercept,0,70
+
+# on several GPUs (results are identical to one GPU), and continuing or extending an interrupted run
+bin/fsm2d_gpu --N 50000 --tau 6 --box 2500 --steps 10000 --gpus all --out runs/n50000_t6
+bin/fsm2d_gpu --N 50000 --tau 6 --box 2500 --steps 20000 --gpus all --out runs/n50000_t6 --resume
+
+# a sweep over N and tau, several runs at a time on 8 GPUs (resumable)
+python3 scripts/run_matrix.py --dims 2 --N 500,1000,2500,5000,10000 --tau 6,7,8,9,10 --gpus 0-7 --out runs/matrix
+python3 scripts/summarize.py runs/matrix/n*_t6
+```
+
+Main flags (all simulators): `--N --tau --steps --seed --box --heading-sd --init FILE --out PREFIX --resume`, and the
+model parameters `--v0 --dv --dtheta --R --dt --half-angle atan|asin` (2D also `--noise`; 3D `--phi-max`). GPU:
+`--device D`, `--gpus 0,1,..|all`; 2D `--bins` (angular resolution) and `--merge EPS` (automatic: exact for τ ≤ 7,
+1.5 above); 3D `--grid NLONxNLAT` and `--merge EPS`. Predators (3D): `--predator line|com|nearest|intercept`,
+`--pred-start --pred-dist --pred-from AZ,EL --pred-speed --pred-radius --pred-grow --pred-turn --pred2 MODE,AZ,EL`,
+and `--pred-vision on` (only birds that see a predator react; `--pred-blind --pred-memory`). The header of each
+`main` file lists every flag; `docs/NOTES.md` explains the model behind them.
+
+**Output**, written step by step (a run can be watched or resumed while it goes; `fsmtools.load_run` reads it):
+`PREFIX.json` (parameters), `PREFIX.traj` (float64 frames: x, y, θ, v in 2D; x, y, z, θ, φ, v in 3D), `PREFIX.moves`
+(int8, the move each bird took), `PREFIX.scores` (float32, each bird's score for every first move), and for
+predators `PREFIX.pred` and `PREFIX.seen`. All randomness is indexed by (seed, step, bird), so runs are
+reproducible bit for bit, whatever the number of threads or GPUs, and across interruptions.
+
+## View
+
+```sh
+python scripts/build_viewer.py runs/n500_t6 runs/n1000_t6_3d --zip fsm_viewer.zip
+```
+
+bundles runs into `viewer/data`. Open `viewer/index.html` (2D) or `viewer/3d.html` (3D) in a browser: no server,
+installation or GPU is needed, and the zip holds the same thing ready to send. A run is stored as its initial state
+and the moves (~0.33 MB per million bird-steps), and the viewer re-integrates it. In 2D, click a bird and turn on
+**Bird view** to see its futures and the score of each move, recomputed in the browser. "Open run files…" loads any
+run's `.json` + `.traj` (+ `.moves`) straight from disk.
+
+`viewer/movie/movie.py` renders a video of a run from the viewer, with a scripted camera
+(`viewer/movie/shots/` holds the shot lists of the example videos).
+
+## Original release (2019)
+
+The 2019 code (discrete visual states, `main.cpp`) is in the git history of `master`. Interactive explanations of the
+[visual state](https://henrycharlesworth.com/IntrinsicallyMotivatedCollectiveMotion/Visualizations/visState.html) and
+the [future-state tree search](https://henrycharlesworth.com/IntrinsicallyMotivatedCollectiveMotion/Visualizations/treeSearch.html).
