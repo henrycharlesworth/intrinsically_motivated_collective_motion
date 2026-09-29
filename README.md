@@ -15,7 +15,7 @@ varied visual states. This is Future State Maximisation (FSM); flocking emerges 
 | `src/common/` | Command line, random streams, run files and resume, shared by the simulators |
 | `python/fsmtools/` | Loading runs, flock measures, brute-force reference models (2D and 3D), viewer export |
 | `scripts/` | Parameter sweeps on many GPUs, run summaries, the empowerment check, viewer bundles |
-| `viewer/` | Standalone browser viewer (2D and 3D), and a tool that renders videos from it |
+| `viewer/` | Browser viewer (2D and 3D): a local server for a folder of runs, or standalone bundles; and a video tool |
 | `tests/` | Test suite: exactness, GPU against CPU and reference, reproducibility |
 | [`docs/NOTES.md`](docs/NOTES.md) | The model, the derivation of the score and its link to empowerment, 3D, and results |
 | [`docs/OPTIMIZATIONS.md`](docs/OPTIMIZATIONS.md) | How the code is made fast, from the original implementation to multi-GPU |
@@ -71,18 +71,22 @@ reproducible bit for bit, whatever the number of threads or GPUs, and across int
 
 ## View
 
+Save runs anywhere under `runs/` (as in the examples above: `--out runs/<name>`), then start the viewer:
+
 ```sh
-python scripts/build_viewer.py runs/n500_t6 runs/n1000_t6_3d --zip fsm_viewer.zip
+python viewer/serve.py                  # http://localhost:8000; needs only Python 3, no GPU
+python viewer/serve.py --runs ~/results --port 8080   # another folder of runs
 ```
 
-bundles runs into `viewer/data`. Open `viewer/index.html` (2D) or `viewer/3d.html` (3D) in a browser: no server,
-installation or GPU is needed, and the zip holds the same thing ready to send. A run is stored as its initial state
-and the moves (~0.33 MB per million bird-steps), and the viewer re-integrates it. In 2D, click a bird and turn on
-**Bird view** to see its futures and the score of each move, recomputed in the browser. "Open run files…" loads any
-run's `.json` + `.traj` (+ `.moves`) straight from disk.
+The **Experiment** menu of `index.html` (2D) and `3d.html` (3D) lists every run in the folder, including its
+subfolders, by path. A run that is still going can be watched: reload the page to pick up the new steps. Space
+plays, ← → step, [ ] change speed, drag pans (2D) or orbits (3D). Click a bird to select it. In 2D, **Bird view**
+shows that bird's futures and the score of each first move, recomputed in the browser. The 3D controls are
+**Follow**, **Shape** (the flock's ellipsoid) and, for predator runs, **Slice** and colouring by who has seen the
+predator. `viewer/README.txt` lists all the controls.
 
-`viewer/movie/movie.py` renders a video of a run from the viewer, with a scripted camera
-(`viewer/movie/shots/` holds the shot lists of the example videos).
+The viewer also works with no server at all, opened straight from disk (`scripts/build_viewer.py` bundles chosen
+runs, and can zip them with the viewer to send), and `viewer/movie/movie.py` renders videos from it.
 
 ## Original release (2019)
 

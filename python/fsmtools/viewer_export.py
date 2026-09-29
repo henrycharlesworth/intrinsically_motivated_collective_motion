@@ -69,14 +69,16 @@ def _analysis2d(params, init, moves, T, N, stride):
         return None
 
 
-def export_run(prefix, out_dir, run_id=None, label=None, stride=None, scores=False):
+def export_run(prefix, out_dir, run_id=None, label=None, stride=None, scores=False, steps=None):
     """Write out_dir/<run_id>.js for the run at `prefix`; returns its entry for runs.js. stride (2D): keep one frame in
     this many in the browser (default: automatic for runs too large to hold every frame). scores (3D): include the
-    per-step scores, which the 3D bird panel then shows (large)."""
+    per-step scores, which the 3D bird panel then shows (large). steps: keep only the first this many steps."""
     run = load_run(prefix, mmap=True)
     p, traj, moves = run["params"], run["traj"], run["moves"]
     dims = dims_of(p)
     T = min(len(traj), len(moves) + 1)
+    if steps is not None:
+        T = min(T, steps + 1)
     N = traj.shape[1]
     run_id = run_id or os.path.basename(prefix)
     meta = {"params": p, "T": int(T), "N": int(N), "dims": dims}

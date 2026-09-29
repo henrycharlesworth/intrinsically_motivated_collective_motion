@@ -1,12 +1,14 @@
 """Bundle runs with the standalone viewer, optionally as one zip to send around.
 
   python scripts/build_viewer.py runs/n2500_t6 "runs/pred/drive_above=3D · two predators, split and rejoin"
-  python scripts/build_viewer.py runs/n2500_t6 runs/n1000_t6_3d --zip fsm_viewer.zip
+  python scripts/build_viewer.py runs/n2500_t6 runs/n1000_t6_3d runs/n50000_t6@3000 --zip fsm_viewer.zip
 
-Each argument is a run prefix, optionally with "=LABEL" (the menu label; default: N, tau and steps). The runs are
+Each argument is a run prefix, optionally followed by "@STEPS" (keep only the first STEPS steps) and "=LABEL" (the
+menu label; default: N, tau and steps). The runs are
 written to viewer/data (replacing what is there) in the order given; the first 2D and the first 3D run open by
 default. With --zip, the viewer (pages, scripts and these runs) is packed into one file: unzip it anywhere and open
-index.html (2D) or 3d.html (3D) in a browser. No server, installation or GPU is needed.
+index.html (2D) or 3d.html (3D) in a browser. No server, installation or GPU is needed; README.txt in the zip says
+how to use the viewer.
 """
 import argparse
 import glob
@@ -22,7 +24,7 @@ VIEWER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "viewer"
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("runs", nargs="+", help="PREFIX or PREFIX=LABEL")
+    ap.add_argument("runs", nargs="+", help="PREFIX[@STEPS][=LABEL]")
     ap.add_argument("--out", default=os.path.join(VIEWER, "data"))
     ap.add_argument("--zip", help="also pack the viewer and its data into this zip file")
     ap.add_argument("--scores", action="store_true", help="3D: include the per-step scores (for the bird panel; large)")
@@ -32,8 +34,9 @@ def main():
         os.remove(f)
     entries = []
     for spec in a.runs:
-        prefix, _, label = spec.partition("=")
-        e = export_run(prefix, a.out, label=label or None, scores=a.scores)
+        spec, _, label = spec.partition("=")
+        prefix, _, steps = spec.partition("@")
+        e = export_run(prefix, a.out, label=label or None, scores=a.scores, steps=int(steps) if steps else None)
         size = os.path.getsize(os.path.join(a.out, e["id"] + ".js"))
         print(f"{e['id']:32s} {size / 1e6:7.1f} MB  {e['label']}")
         entries.append(e)
@@ -42,6 +45,7 @@ def main():
         with zipfile.ZipFile(a.zip, "w", zipfile.ZIP_STORED) as z:  # the data is already compressed
             for rel in ["index.html", "3d.html"] + sorted(os.path.relpath(f, VIEWER) for f in glob.glob(os.path.join(VIEWER, "js", "*.js"))):
                 z.write(os.path.join(VIEWER, rel), os.path.join("fsm_viewer", rel))
+            z.write(os.path.join(VIEWER, "README.txt"), os.path.join("fsm_viewer", "README.txt"))
             for f in sorted(glob.glob(os.path.join(a.out, "*.js"))):
                 z.write(f, os.path.join("fsm_viewer", "data", os.path.basename(f)))
         print(f"{a.zip}: {os.path.getsize(a.zip) / 1e6:.1f} MB")

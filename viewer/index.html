@@ -1125,6 +1125,7 @@
 
   async function load() {
     startWorker();
+    await FSMData.ready;
     const all = FSMData.runs(), runs = all.filter((r) => r.dims !== 3), runs3 = all.filter((r) => r.dims === 3);
     const group = (label, list, prefix) => {
       const g = document.createElement("optgroup");
@@ -1143,7 +1144,7 @@
     resize();
     if (!runs.length) {
       $("loading").textContent = "No 2D runs are bundled with this viewer. Open a run's files (PREFIX.json, .traj, .moves), " +
-        "or build a bundle with scripts/build_viewer.py.";
+        "or start viewer/serve.py to list a folder of runs.";
       requestAnimationFrame(tick);
       return;
     }

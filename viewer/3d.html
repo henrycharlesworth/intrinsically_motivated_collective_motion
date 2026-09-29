@@ -908,6 +908,7 @@
   setPanel(panelOn); setSpeed(3);
   (async () => {
     try {
+      await FSMData.ready;
       const all = FSMData.runs();
       runs = all.filter((r) => r.dims === 3);
       const runs2 = all.filter((r) => r.dims !== 3);
@@ -916,7 +917,7 @@
       const asked = new URLSearchParams(location.search).get("run");
       const first = asked && runs.some((r) => r.id === asked) ? asked : runs.length ? runs[0].id : null;
       if (first) { $("run").value = first; await loadRun(first); }
-      else showErr(new Error("no 3D runs are bundled with this viewer (build a bundle with scripts/build_viewer.py)"));
+      else showErr(new Error("no 3D runs are bundled with this viewer (start viewer/serve.py to list a folder of runs)"));
     } catch (err) { showErr(err); }
   })();
 })();

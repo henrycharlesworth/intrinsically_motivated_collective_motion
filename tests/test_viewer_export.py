@@ -1,8 +1,15 @@
-"""The viewer's run bundles: the moves-only format reproduces the trajectory, and the bundle decodes."""
+"""The viewer's run bundles (the moves-only format reproduces the trajectory, and the bundle decodes) and its local
+server."""
 import base64
+import http.server
 import json
+import os
 import shutil
 import subprocess
+import sys
+import threading
+import urllib.error
+import urllib.request
 import zlib
 
 import numpy as np
@@ -11,6 +18,9 @@ import pytest
 from conftest import ROOT, binary, run
 from fsmtools import load_run
 from fsmtools.viewer_export import export_run, replay2d
+
+sys.path.insert(0, os.path.join(ROOT, "viewer"))
+import serve  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -48,3 +58,27 @@ def test_bundle_decodes(run2d, tmp_path):
     a = arrays["moves"]
     moves = np.frombuffer(zlib.decompress(base64.b64decode("".join(a["chunks"])), -15), np.uint8)
     assert np.array_equal(moves, load_run(run2d)["moves"].ravel())
+
+
+def test_bundle_keeps_the_first_steps(run2d, tmp_path):
+    e = export_run(run2d, str(tmp_path), run_id="r", steps=10)
+    meta = json.loads(open(tmp_path / "r.js").read()[len('FSMData.register("r", '):-3])["meta"]
+    assert meta["T"] == 11 and e["label"].endswith("10 steps")
+
+
+def test_server_lists_and_serves_runs(run2d):
+    root = os.path.dirname(run2d)
+    assert [(r["id"], r["dims"], r["steps"]) for r in serve.find_runs(root)] == [("r", 2, 30)]
+    serve.Handler.runs_root = root
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), lambda *a, **k: serve.Handler(*a, directory=serve.VIEWER, **k))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}/"
+    try:
+        assert json.load(urllib.request.urlopen(url + "runs/index.json"))[0]["id"] == "r"
+        req = urllib.request.Request(url + "runs/r.traj", headers={"Range": "bytes=0-31"})
+        assert urllib.request.urlopen(req).read() == open(run2d + ".traj", "rb").read(32)
+        assert b"FSMData" in urllib.request.urlopen(url + "js/data.js").read()
+        with pytest.raises(urllib.error.HTTPError):  # only run files are served from the runs folder
+            urllib.request.urlopen(url + "runs/r.log")
+    finally:
+        srv.shutdown()
