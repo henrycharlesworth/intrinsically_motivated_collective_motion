@@ -1,0 +1,9 @@
+# build output and local data
+bin/
+runs/
+old/
+viewer/data/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.zip
